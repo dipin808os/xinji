@@ -1,0 +1,9 @@
+[
+  {
+    "id": "u_示例请勿直接使用",
+    "name": "admin",
+    "salt": "运行 gen-users.mjs 会自动生成随机 salt",
+    "hash": "这里存的是 sha256(salt + ':' + 口令)，不是明文",
+    "role": "admin"
+  }
+]

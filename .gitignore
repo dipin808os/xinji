@@ -1,0 +1,20 @@
+node_modules/
+
+# 敏感文件：绝不提交
+.env
+# 含口令哈希与 salt
+data/users.json
+# cookie 签名密钥
+data/session-secret
+# 用户的私密记录
+data/entries.json
+
+# 允许提交示例
+!data/users.example.json
+
+# 杂项
+*.log
+shot-*.png
+new-*.png
+os-*.png
+chk-*.png
