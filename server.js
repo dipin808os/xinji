@@ -240,7 +240,7 @@ function unreadCount(convo) {
   if (!convo.readAt) return 0; // 老会话：无 readAt 一律按已读处理
   return msgs.filter((m) => m.role === 'assistant' && new Date(m.createdAt).getTime() > readAt).length;
 }
-const PROACTIVE_GAP_HOURS = Number(process.env.PROACTIVE_GAP_HOURS || 12); // 隔多久没聊才主动发
+const PROACTIVE_GAP_HOURS = Number(process.env.PROACTIVE_GAP_HOURS || 3); // 隔多久没聊才主动发（有每天一条硬节流兜底）
 
 // ---------- 调用 LLM（DeepSeek / OpenAI 兼容格式，原生 https 无依赖） ----------
 // input 可以是字符串（单轮）或 [{role,content},...]（多轮）
@@ -665,35 +665,40 @@ async function maybeProactive(uid, char) {
   try {
     const convo = companionOf(readCompanion(), uid, char);
     const msgs = convo.messages || [];
-    // 从没聊过 → 不主动打扰（首次交给点进去时的 greeting）
-    if (!convo.updatedAt || !msgs.length) return;
-    // 今天已经主动过 → 不重复
+    const neverChatted = !convo.updatedAt || !msgs.length;
+    // 今天已经主动过 → 不重复（每角色每天最多一条，这是频率的硬上限）
     if (convo.proactiveDate === localDateStr()) return;
     // 已有未读 → 不再堆
     if (unreadCount(convo) > 0) return;
-    // 触发条件：很久没聊(gap) 或 更新后记了新的情绪日记(diary)
-    const updatedMs = new Date(convo.updatedAt).getTime();
-    const gap = Date.now() - updatedMs >= PROACTIVE_GAP_HOURS * 3600000;
-    const diary = readEntries().some(
-      (e) => e.owner === uid && e.type === 'emotion' && new Date(e.createdAt).getTime() > updatedMs
-    );
-    if (!gap && !diary) return;
+    // 触发：从没聊过(首次搭讪) / 距上次互动够久(gap) / 更新后记了新情绪日记(diary)
+    let trigger = neverChatted;
+    if (!trigger) {
+      const updatedMs = new Date(convo.updatedAt).getTime();
+      const gap = Date.now() - updatedMs >= PROACTIVE_GAP_HOURS * 3600000;
+      const diary = readEntries().some(
+        (e) => e.owner === uid && e.type === 'emotion' && new Date(e.createdAt).getTime() > updatedMs
+      );
+      trigger = gap || diary;
+    }
+    if (!trigger) return;
 
     const text = await genGreeting(uid, char);
     const now = new Date().toISOString();
     await enqueueCompanionWrite((store) => {
-      if (!store[uid] || Array.isArray(store[uid].messages)) return; // 会话被并发改成异常结构则放弃
-      const c = store[uid][char];
-      if (!c) return;
+      if (store[uid] && Array.isArray(store[uid].messages)) return; // 旧单角色结构则放弃
+      if (!store[uid]) store[uid] = {};
+      const c = store[uid][char] || (store[uid][char] = { messages: [], updatedAt: null });
       // 二次确认门禁（并发安全）：今天没主动过、当前无未读
       if (c.proactiveDate === localDateStr()) return;
       const ra = c.readAt ? new Date(c.readAt).getTime() : 0;
       const hasUnread = c.readAt && (c.messages || []).some((m) => m.role === 'assistant' && new Date(m.createdAt).getTime() > ra);
       if (hasUnread) return;
-      // 老会话无 readAt：先把 readAt 设成"当前最后一条消息时间"（视为已读到最新），
-      // 这样接下来 push 的主动消息才会被算作唯一的未读
-      if (!c.readAt && c.messages && c.messages.length) {
-        c.readAt = c.messages[c.messages.length - 1].createdAt;
+      // 确保 readAt 早于即将 push 的主动消息，让它成为未读：
+      //  - 已有 readAt：不动
+      //  - 有历史无 readAt（老数据）：设成上条时间（只这条未读，不诈历史）
+      //  - 首次无历史：设成 epoch
+      if (!c.readAt) {
+        c.readAt = c.messages.length ? c.messages[c.messages.length - 1].createdAt : new Date(0).toISOString();
       }
       c.messages.push({ role: 'assistant', content: text, createdAt: now });
       c.updatedAt = now;
