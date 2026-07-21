@@ -229,6 +229,18 @@ function companionOf(store, ownerId, charId) {
   if (!bucket || Array.isArray(bucket.messages)) return { messages: [], updatedAt: null }; // 旧结构：忽略
   return bucket[charId] || { messages: [], updatedAt: null };
 }
+// 本地日期串（用于"每天最多主动一次"的节流）
+function localDateStr(d = new Date()) {
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+// 未读 = readAt 之后的 assistant 消息条数。无 readAt 的老会话视为"已读到最新"（避免升级诈红点）
+function unreadCount(convo) {
+  const msgs = convo.messages || [];
+  const readAt = convo.readAt ? new Date(convo.readAt).getTime() : 0;
+  if (!convo.readAt) return 0; // 老会话：无 readAt 一律按已读处理
+  return msgs.filter((m) => m.role === 'assistant' && new Date(m.createdAt).getTime() > readAt).length;
+}
+const PROACTIVE_GAP_HOURS = Number(process.env.PROACTIVE_GAP_HOURS || 12); // 隔多久没聊才主动发
 
 // ---------- 调用 LLM（DeepSeek / OpenAI 兼容格式，原生 https 无依赖） ----------
 // input 可以是字符串（单轮）或 [{role,content},...]（多轮）
@@ -630,21 +642,105 @@ function resolveChar(req) {
   return CHARACTERS[id] ? id : null;
 }
 
-// ---------- /api/companion/contacts：通讯录角色列表 ----------
-app.get('/api/companion/contacts', requireAuth, (req, res) => {
-  res.json({
-    contacts: Object.entries(CHARACTERS).map(([id, c]) => ({
+// 生成一句角色主动的开场/问候文本（greeting 接口与主动消息共用）
+async function genGreeting(uid, char) {
+  const persona = CHARACTERS[char];
+  const digest = recentDiaryDigest(uid);
+  if (API_KEY) {
+    try {
+      const sys = persona.prompt + digest;
+      const cue = digest ? persona.greetingCue.withDiary : persona.greetingCue.noDiary;
+      const g = sanitizeReply(await callClaude(sys, cue));
+      return g || persona.mockGreeting(!!digest);
+    } catch (e) {
+      console.error('主动/开场问候调用失败，降级为模拟：', e.message);
+      return persona.mockGreeting(!!digest);
+    }
+  }
+  return persona.mockGreeting(!!digest);
+}
+
+// 主动发消息：满足门禁则懒生成一条角色主动发来的未读消息。任何异常都吞掉，不能让通讯录打不开
+async function maybeProactive(uid, char) {
+  try {
+    const convo = companionOf(readCompanion(), uid, char);
+    const msgs = convo.messages || [];
+    // 从没聊过 → 不主动打扰（首次交给点进去时的 greeting）
+    if (!convo.updatedAt || !msgs.length) return;
+    // 今天已经主动过 → 不重复
+    if (convo.proactiveDate === localDateStr()) return;
+    // 已有未读 → 不再堆
+    if (unreadCount(convo) > 0) return;
+    // 触发条件：很久没聊(gap) 或 更新后记了新的情绪日记(diary)
+    const updatedMs = new Date(convo.updatedAt).getTime();
+    const gap = Date.now() - updatedMs >= PROACTIVE_GAP_HOURS * 3600000;
+    const diary = readEntries().some(
+      (e) => e.owner === uid && e.type === 'emotion' && new Date(e.createdAt).getTime() > updatedMs
+    );
+    if (!gap && !diary) return;
+
+    const text = await genGreeting(uid, char);
+    const now = new Date().toISOString();
+    await enqueueCompanionWrite((store) => {
+      if (!store[uid] || Array.isArray(store[uid].messages)) return; // 会话被并发改成异常结构则放弃
+      const c = store[uid][char];
+      if (!c) return;
+      // 二次确认门禁（并发安全）：今天没主动过、当前无未读
+      if (c.proactiveDate === localDateStr()) return;
+      const ra = c.readAt ? new Date(c.readAt).getTime() : 0;
+      const hasUnread = c.readAt && (c.messages || []).some((m) => m.role === 'assistant' && new Date(m.createdAt).getTime() > ra);
+      if (hasUnread) return;
+      // 老会话无 readAt：先把 readAt 设成"当前最后一条消息时间"（视为已读到最新），
+      // 这样接下来 push 的主动消息才会被算作唯一的未读
+      if (!c.readAt && c.messages && c.messages.length) {
+        c.readAt = c.messages[c.messages.length - 1].createdAt;
+      }
+      c.messages.push({ role: 'assistant', content: text, createdAt: now });
+      c.updatedAt = now;
+      c.proactiveDate = localDateStr();
+      // 不动 readAt —— 所以这条显示为未读
+    });
+  } catch (e) {
+    console.error('主动消息生成失败（忽略）：', e.message);
+  }
+}
+
+// ---------- /api/companion/contacts：通讯录角色列表（含未读/预览/时间） ----------
+app.get('/api/companion/contacts', requireAuth, async (req, res) => {
+  const uid = req.user.id;
+  // 先按门禁尝试为每个角色主动发一条（多数会被门禁挡掉）
+  for (const char of Object.keys(CHARACTERS)) {
+    await maybeProactive(uid, char);
+  }
+  const store = readCompanion();
+  const contacts = Object.entries(CHARACTERS).map(([id, c]) => {
+    const convo = companionOf(store, uid, id);
+    const msgs = convo.messages || [];
+    const last = msgs[msgs.length - 1];
+    const preview = last ? (last.content || '').split('\n')[0].slice(0, 22) : '';
+    return {
       id, name: c.name, tagline: c.tagline,
-    })),
+      unread: unreadCount(convo),
+      preview,
+      lastAt: last ? last.createdAt : null,
+    };
   });
+  res.json({ contacts });
 });
 
-// ---------- /api/companion：拉取与某角色的历史对话（只返回自己的） ----------
-app.get('/api/companion', requireAuth, (req, res) => {
+// ---------- /api/companion：拉取与某角色的历史对话（顺便标记为已读） ----------
+app.get('/api/companion', requireAuth, async (req, res) => {
   const char = resolveChar(req);
   if (!char) return res.status(400).json({ error: '未知角色' });
-  const convo = companionOf(readCompanion(), req.user.id, char);
-  res.json({ messages: convo.messages || [] });
+  const uid = req.user.id;
+  const saved = await enqueueCompanionWrite((store) => {
+    const bucket = store[uid];
+    if (!bucket || Array.isArray(bucket.messages)) return null; // 无/旧结构，无可标记
+    const c = bucket[char];
+    if (c) c.readAt = new Date().toISOString();
+    return c ? c.messages : null;
+  });
+  res.json({ messages: saved || [] });
 });
 
 // ---------- /api/companion/greeting：打开聊天时的开场主动问候 ----------
@@ -653,37 +749,22 @@ app.post('/api/companion/greeting', requireAuth, aiRateLimit, async (req, res) =
   const char = resolveChar(req);
   if (!char) return res.status(400).json({ error: '未知角色' });
   const uid = req.user.id;
-  const persona = CHARACTERS[char];
   const convo = companionOf(readCompanion(), uid, char);
   const msgs = convo.messages || [];
   const last = msgs[msgs.length - 1];
-  // 今天已经有过对话就不再插开场白，前端直接展示历史
+  // 今天已经有过对话（含刚才主动发的）就不再插开场白，前端直接展示历史
   if (last && new Date(last.createdAt).toDateString() === new Date().toDateString()) {
     return res.json({ greeting: null });
   }
 
-  const digest = recentDiaryDigest(uid);
-  let greeting;
-  if (API_KEY) {
-    try {
-      const sys = persona.prompt + digest;
-      const cue = digest ? persona.greetingCue.withDiary : persona.greetingCue.noDiary;
-      greeting = sanitizeReply(await callClaude(sys, cue));
-      if (!greeting) greeting = persona.mockGreeting(!!digest);
-    } catch (e) {
-      console.error('开场问候调用失败，降级为模拟：', e.message);
-      greeting = persona.mockGreeting(!!digest);
-    }
-  } else {
-    greeting = persona.mockGreeting(!!digest);
-  }
-
+  const greeting = await genGreeting(uid, char);
   const now = new Date().toISOString();
   await enqueueCompanionWrite((store) => {
     store[uid] = store[uid] && !Array.isArray(store[uid].messages) ? store[uid] : {}; // 旧结构则重置
     const c = store[uid][char] || { messages: [], updatedAt: null };
     c.messages.push({ role: 'assistant', content: greeting, createdAt: now });
     c.updatedAt = now;
+    c.readAt = now; // 用户此刻正在看这个聊天，视为已读
     store[uid][char] = c;
   });
   res.json({ greeting });
@@ -726,6 +807,7 @@ app.post('/api/companion/chat', requireAuth, aiRateLimit, async (req, res) => {
     c.messages.push({ role: 'user', content: message, createdAt: now });
     c.messages.push({ role: 'assistant', content: reply, createdAt: now });
     c.updatedAt = now;
+    c.readAt = now; // 正在聊，视为已读到最新
     store[uid][char] = c;
     return c.messages;
   });

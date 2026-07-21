@@ -495,6 +495,23 @@
   .cc-name { font-family:var(--font-ui); font-weight:700; font-size:17px; color:var(--ink); }
   .cc-tag { font-size:12px; color:var(--ink-soft); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .cc-arrow { flex:0 0 auto; color:var(--ink-faint); font-size:22px; }
+  /* 未读：红点角标 + 消息预览 + 相对时间 */
+  .cc-unread {
+    position:absolute; top:-3px; right:-3px; min-width:19px; height:19px; padding:0 5px;
+    border-radius:10px; background:#ff3b6a; color:#fff; font-size:11px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; box-sizing:border-box;
+    border:2px solid var(--win-face); font-family:var(--font-mono);
+  }
+  .cc-preview { color:var(--accent) !important; }
+  .cc-time { flex:0 0 auto; font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); align-self:flex-start; margin-top:2px; }
+  .contact-card.has-unread .cc-name { font-weight:800; }
+  .contact-card.has-unread .cc-online { display:none; } /* 未读红点在右上，避免和右下在线点视觉打架 */
+  /* 顶栏「通讯录」标签的未读红点 */
+  #tabCompanion.has-dot { position:relative; }
+  #tabCompanion.has-dot::after {
+    content:""; position:absolute; top:3px; right:2px; width:7px; height:7px;
+    border-radius:50%; background:#ff3b6a; box-shadow:0 0 0 1.5px var(--win-face);
+  }
 
   /* ============================================================
      sysmon.exe — 情绪监视器（面板）
@@ -1309,31 +1326,56 @@ const Companion = (function(){
     $('#chatView').style.display = which === 'chat' ? 'flex' : 'none';
   }
 
-  // 打开通讯录（拉角色列表 → 渲染卡片）
+  // 相对时间："刚刚 / x分钟前 / x小时前 / 昨天 / 日期"
+  function relTime(iso){
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff/60000), h = Math.floor(diff/3600000), d = Math.floor(diff/86400000);
+    if (m < 1) return '刚刚';
+    if (m < 60) return m+'分钟前';
+    if (h < 24) return h+'小时前';
+    if (d === 1) return '昨天';
+    if (d < 7) return d+'天前';
+    return fmtDate(iso).slice(5); // MM-DD
+  }
+  function renderContacts(contacts){
+    const list = $('#contactsList');
+    list.innerHTML = contacts.map(c=>{
+      const a = AV[c.id] || { src:'', fallback:'?' };
+      const badge = c.unread>0 ? `<span class="cc-unread">${c.unread>99?'99+':c.unread}</span>` : '';
+      const sub = c.unread>0 && c.preview
+        ? `<div class="cc-tag cc-preview">${escapeHTML(c.preview)}</div>`
+        : `<div class="cc-tag">${escapeHTML(c.tagline)}</div>`;
+      const right = c.unread>0
+        ? `<span class="cc-time">${relTime(c.lastAt)}</span>`
+        : `<span class="cc-arrow">›</span>`;
+      return `<div class="contact-card${c.unread>0?' has-unread':''}" data-char="${c.id}">
+        <span class="cc-avatar"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.querySelector('.cc-txt').textContent='${a.fallback}'"><span class="cc-txt"></span><span class="cc-online"></span>${badge}</span>
+        <div class="cc-main"><div class="cc-name">${escapeHTML(c.name)}</div>${sub}</div>
+        ${right}
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.contact-card').forEach(card=>{
+      card.onclick = ()=>openChat(card.dataset.char);
+    });
+  }
+
+  // 打开通讯录：每次都刷新（未读会变），会触发后端按门禁主动发消息
   async function openContacts(){
     $('#companionModal').classList.add('show');
     tickClock();
     showView('contacts');
     const list = $('#contactsList');
-    if (!list.dataset.ready){
+    if (!list.children.length){
       list.innerHTML = '<div style="text-align:center;color:var(--ink-faint);padding:30px;font-family:var(--font-mono)">加载中…</div>';
-      try {
-        const { contacts } = await api('/api/companion/contacts');
-        list.innerHTML = contacts.map(c=>{
-          const a = AV[c.id] || { src:'', fallback:'?' };
-          return `<div class="contact-card" data-char="${c.id}">
-            <span class="cc-avatar"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.querySelector('.cc-txt').textContent='${a.fallback}'"><span class="cc-txt"></span><span class="cc-online"></span></span>
-            <div class="cc-main"><div class="cc-name">${escapeHTML(c.name)}</div><div class="cc-tag">${escapeHTML(c.tagline)}</div></div>
-            <span class="cc-arrow">›</span>
-          </div>`;
-        }).join('');
-        list.querySelectorAll('.contact-card').forEach(card=>{
-          card.onclick = ()=>openChat(card.dataset.char);
-        });
-        list.dataset.ready = '1';
-      } catch {
+    }
+    try {
+      const { contacts } = await api('/api/companion/contacts');
+      renderContacts(contacts);
+      updateTabDot(contacts);
+    } catch {
+      if (!list.querySelector('.contact-card'))
         list.innerHTML = '<div style="text-align:center;color:var(--ink-faint);padding:30px">信号不太好，稍后再来。</div>';
-      }
     }
   }
 
@@ -1370,8 +1412,18 @@ const Companion = (function(){
     setTimeout(()=>$('#companionInput').focus(), 80);
   }
 
-  function backToContacts(){ showView('contacts'); }
-  function close(){ $('#companionModal').classList.remove('show'); }
+  function backToContacts(){ showView('contacts'); openContacts(); }
+  function close(){ $('#companionModal').classList.remove('show'); checkUnread(); }
+
+  // 顶栏「通讯录」标签红点：有未读就亮
+  function updateTabDot(contacts){
+    const total = (contacts||[]).reduce((s,c)=>s+(c.unread||0),0);
+    $('#tabCompanion').classList.toggle('has-dot', total>0);
+  }
+  // 登录后台静默拉一次，纯为点亮顶栏红点（也会触发后端主动生成）
+  async function checkUnread(){
+    try { const { contacts } = await api('/api/companion/contacts'); updateTabDot(contacts); } catch {}
+  }
 
   async function send(){
     if (!currentChar) return;
@@ -1401,7 +1453,7 @@ const Companion = (function(){
     }
   }
 
-  return { openContacts, openChat, backToContacts, close, send };
+  return { openContacts, openChat, backToContacts, close, send, checkUnread };
 })();
 $('#tabCompanion').onclick = Companion.openContacts;
 $('#companionBack').onclick = Companion.backToContacts;
@@ -1760,6 +1812,7 @@ function startApp(me){
   $('#stUser').textContent = me.name + (me.role === 'admin' ? ' ★' : '');
   loadTimeline();
   Pet.init();
+  Companion.checkUnread(); // 点亮顶栏未读红点（也触发主动消息生成）
 }
 (async function boot(){
   try {
