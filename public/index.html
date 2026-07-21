@@ -418,8 +418,10 @@
   #companionStream::-webkit-scrollbar-thumb { background:var(--bevel-lo); border-radius:3px; }
   .ph-row { display:flex; align-items:flex-end; gap:8px; max-width:100%; }
   .ph-row.me { flex-direction:row-reverse; }
-  .ph-row .col { display:flex; flex-direction:column; max-width:74%; }
+  .ph-row .col { display:flex; flex-direction:column; max-width:74%; gap:5px; }
   .ph-row.me .col { align-items:flex-end; }
+  .ph-row .col .ph-bubble { align-self:flex-start; }
+  .ph-row.me .col .ph-bubble { align-self:flex-end; }
   .ph-bubble {
     position:relative; padding:11px 14px; font-size:14.5px; line-height:1.7;
     border-radius:18px; word-break:break-word; white-space:pre-wrap;
@@ -432,8 +434,8 @@
     background:linear-gradient(180deg, var(--title-1), var(--title-2)); color:#fff;
     border-bottom-right-radius:6px;
   }
-  /* AI 气泡右下角小兔子印章 */
-  .ph-row.ai .ph-bubble::after {
+  /* AI 气泡右下角小兔子印章：只贴在这一轮的最后一条 */
+  .ph-row.ai .col .ph-bubble:last-of-type::after {
     content:"🐰"; position:absolute; right:-6px; bottom:-8px; font-size:15px;
     filter:saturate(.6) hue-rotate(-10deg) brightness(1.05); opacity:.85;
   }
@@ -1277,13 +1279,19 @@ const Companion = (function(){
     const a = AV[charId] || { src:'', fallback:'?' };
     return `<span class="${cls}"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'"></span>`;
   }
+  // 把一条回复按换行拆成多句（模拟连发的多条短消息），去空行
+  function splitMsg(content){
+    return String(content||'').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  }
   function rowHTML(role, content, createdAt){
     const me = role === 'user';
     const time = createdAt ? fmtTime(createdAt) : '';
-    const bubble = `<div class="ph-bubble">${escapeHTML(content)}</div>`;
     const timeEl = time ? `<div class="ph-time">${time}</div>` : '';
-    if (me) return `<div class="ph-row me"><div class="col">${bubble}${timeEl}</div></div>`;
-    return `<div class="ph-row ai">${avatarImg(currentChar,'ph-avatar small')}<div class="col">${bubble}${timeEl}</div></div>`;
+    // AI 连发拆成多个气泡；用户消息作一条
+    const parts = me ? [String(content||'')] : splitMsg(content);
+    const bubbles = parts.map(p=>`<div class="ph-bubble">${escapeHTML(p)}</div>`).join('');
+    if (me) return `<div class="ph-row me"><div class="col">${bubbles}${timeEl}</div></div>`;
+    return `<div class="ph-row ai">${avatarImg(currentChar,'ph-avatar small')}<div class="col">${bubbles}${timeEl}</div></div>`;
   }
   function render(messages){
     const stream = $('#companionStream');
