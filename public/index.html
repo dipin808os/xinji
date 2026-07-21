@@ -465,6 +465,33 @@
   .ph-spark { width:34px; height:34px; flex:0 0 auto; border-radius:50%; border:none; cursor:default;
     background:var(--win-face-2); font-size:15px;
     display:flex; align-items:center; justify-content:center; box-shadow:inset 0 0 0 1px var(--bevel-lo); }
+  /* 两个视图都撑满手机内部剩余高度，各自纵向布局 */
+  #contactsView, #chatView { flex:1; min-height:0; display:flex; flex-direction:column; }
+  /* 通讯录标题 */
+  .ph-title { padding:14px 22px 10px; }
+  .ph-title-main { font-family:var(--font-ui); font-weight:800; font-size:26px; color:var(--ink); letter-spacing:2px; }
+  .ph-title-sub { display:block; font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); letter-spacing:4px; margin-top:2px; }
+  #contactsList { flex:1; overflow-y:auto; padding:4px 12px 16px; display:flex; flex-direction:column; gap:12px; }
+  /* 联系人卡片 */
+  .contact-card {
+    display:flex; align-items:center; gap:13px; padding:13px 14px; cursor:pointer;
+    border-radius:20px; background:var(--win-face);
+    box-shadow:0 3px 12px rgba(120,40,80,.12); transition:transform .12s, box-shadow .12s;
+  }
+  .contact-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(120,40,80,.2); }
+  .contact-card:active { transform:scale(.98); }
+  .cc-avatar { width:54px; height:54px; flex:0 0 auto; border-radius:50%; overflow:hidden; position:relative;
+    background:linear-gradient(155deg, var(--title-1), var(--title-2));
+    display:flex; align-items:center; justify-content:center; color:#fff; font-size:24px; font-weight:700;
+    box-shadow:0 2px 6px rgba(120,40,80,.25); }
+  .cc-avatar img { width:100%; height:100%; object-fit:cover; display:block; }
+  .cc-txt { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+  .cc-online { position:absolute; right:1px; bottom:1px; width:13px; height:13px; border-radius:50%;
+    background:#3ed070; border:2.5px solid var(--win-face); }
+  .cc-main { flex:1; min-width:0; }
+  .cc-name { font-family:var(--font-ui); font-weight:700; font-size:17px; color:var(--ink); }
+  .cc-tag { font-size:12px; color:var(--ink-soft); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cc-arrow { flex:0 0 auto; color:var(--ink-faint); font-size:22px; }
 
   /* ============================================================
      sysmon.exe — 情绪监视器（面板）
@@ -710,7 +737,7 @@
   <div class="tab" data-scroll="explorerWin">🗂 时间线</div>
   <div class="tab" id="tabStats">📊 面板</div>
   <div class="tab" id="tabLookback">✦ 回望</div>
-  <div class="tab" id="tabCompanion">☕ 砚辞</div>
+  <div class="tab" id="tabCompanion">☎ 通讯录</div>
   <div class="tab" id="tabTheme">☾ 主题</div>
 </div>
 
@@ -815,7 +842,7 @@
   </div>
 </div>
 
-<!-- 沈砚辞 · 手机聊天皮肤 -->
+<!-- 陪伴者 · 手机皮肤（通讯录 + 聊天两视图） -->
 <div class="modal" id="companionModal">
   <div class="phone">
     <div class="phone-mascot">🐱</div>
@@ -823,21 +850,34 @@
       <span id="phClock">--:--</span>
       <span class="ph-right"><span>••••</span><span>5G</span><span>🔋</span></span>
     </div>
-    <div class="ph-header">
-      <button class="ph-back" id="companionBack" title="返回">←</button>
-      <div class="ph-avatar"><img id="companionAvatarHead" src="companion.jpg" alt="" onerror="this.style.display='none';this.parentNode.textContent='砚'"></div>
-      <div class="ph-htext">
-        <div class="nm">沈砚辞</div>
-        <div class="sub">ACTIVE RECORD</div>
+
+    <!-- 视图一：通讯录 -->
+    <div id="contactsView">
+      <div class="ph-title">
+        <span class="ph-title-main">通讯录</span>
+        <span class="ph-title-sub">CONTACTS</span>
       </div>
-      <button class="ph-set" title="设置">⚙</button>
+      <div id="contactsList"></div>
     </div>
-    <div id="companionStream"></div>
-    <div class="ph-input">
-      <button class="ph-plus" tabindex="-1">＋</button>
-      <textarea id="companionInput" placeholder="Type a message…" rows="1"></textarea>
-      <button class="ph-send" id="companionSend" title="发送">↑</button>
-      <button class="ph-spark" tabindex="-1">✨</button>
+
+    <!-- 视图二：聊天 -->
+    <div id="chatView" style="display:none">
+      <div class="ph-header">
+        <button class="ph-back" id="companionBack" title="返回通讯录">←</button>
+        <div class="ph-avatar" id="companionAvatarHead"></div>
+        <div class="ph-htext">
+          <div class="nm" id="companionName">沈砚辞</div>
+          <div class="sub">ACTIVE RECORD</div>
+        </div>
+        <button class="ph-set" title="设置">⚙</button>
+      </div>
+      <div id="companionStream"></div>
+      <div class="ph-input">
+        <button class="ph-plus" tabindex="-1">＋</button>
+        <textarea id="companionInput" placeholder="Type a message…" rows="1"></textarea>
+        <button class="ph-send" id="companionSend" title="发送">↑</button>
+        <button class="ph-spark" tabindex="-1">✨</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1223,20 +1263,27 @@ $('#chatInput').addEventListener('keydown',(e)=>{
 $('.chatCloseX').onclick = closeChat;
 $('#chatModal').onclick = (e)=>{ if (e.target.id === 'chatModal') closeChat(); };
 
-/* ---------- 陪伴者 · 沈砚辞（手机聊天皮肤） ---------- */
+/* ---------- 陪伴者 · 通讯录 + 多角色手机聊天 ---------- */
 const Companion = (function(){
-  let opened = false;
-  const AVATAR = '<span class="ph-avatar small"><img src="companion.jpg" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'砚\'"></span>';
+  // 角色 → 头像文件 + 占位字
+  const AV = {
+    shenyance: { src:'companion.jpg', fallback:'砚' },
+    jiangxiyu: { src:'jiangxiyu.jpg', fallback:'溪' },
+  };
+  let currentChar = null;
+  const loaded = {}; // charId → 是否已拉过历史
 
+  function avatarImg(charId, cls){
+    const a = AV[charId] || { src:'', fallback:'?' };
+    return `<span class="${cls}"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'"></span>`;
+  }
   function rowHTML(role, content, createdAt){
     const me = role === 'user';
     const time = createdAt ? fmtTime(createdAt) : '';
     const bubble = `<div class="ph-bubble">${escapeHTML(content)}</div>`;
     const timeEl = time ? `<div class="ph-time">${time}</div>` : '';
-    if (me){
-      return `<div class="ph-row me"><div class="col">${bubble}${timeEl}</div></div>`;
-    }
-    return `<div class="ph-row ai">${AVATAR}<div class="col">${bubble}${timeEl}</div></div>`;
+    if (me) return `<div class="ph-row me"><div class="col">${bubble}${timeEl}</div></div>`;
+    return `<div class="ph-row ai">${avatarImg(currentChar,'ph-avatar small')}<div class="col">${bubble}${timeEl}</div></div>`;
   }
   function render(messages){
     const stream = $('#companionStream');
@@ -1247,35 +1294,77 @@ const Companion = (function(){
     const n = new Date();
     $('#phClock').textContent = `${pad(n.getHours())}:${pad(n.getMinutes())}`;
   }
+  function showView(which){
+    $('#contactsView').style.display = which === 'contacts' ? 'flex' : 'none';
+    $('#chatView').style.display = which === 'chat' ? 'flex' : 'none';
+  }
 
-  async function open(){
+  // 打开通讯录（拉角色列表 → 渲染卡片）
+  async function openContacts(){
     $('#companionModal').classList.add('show');
     tickClock();
-    const stream = $('#companionStream');
-    if (!opened){
-      stream.innerHTML = '<div class="ph-row ai">'+AVATAR+'<div class="col"><div class="ph-bubble thinking">……</div></div></div>';
-    }
-    try {
-      const { messages } = await api('/api/companion');
-      render(messages);
-      // 开场主动问候（今天首次搭话才会返回一句）
+    showView('contacts');
+    const list = $('#contactsList');
+    if (!list.dataset.ready){
+      list.innerHTML = '<div style="text-align:center;color:var(--ink-faint);padding:30px;font-family:var(--font-mono)">加载中…</div>';
       try {
-        const { greeting } = await api('/api/companion/greeting', { method:'POST' });
+        const { contacts } = await api('/api/companion/contacts');
+        list.innerHTML = contacts.map(c=>{
+          const a = AV[c.id] || { src:'', fallback:'?' };
+          return `<div class="contact-card" data-char="${c.id}">
+            <span class="cc-avatar"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.querySelector('.cc-txt').textContent='${a.fallback}'"><span class="cc-txt"></span><span class="cc-online"></span></span>
+            <div class="cc-main"><div class="cc-name">${escapeHTML(c.name)}</div><div class="cc-tag">${escapeHTML(c.tagline)}</div></div>
+            <span class="cc-arrow">›</span>
+          </div>`;
+        }).join('');
+        list.querySelectorAll('.contact-card').forEach(card=>{
+          card.onclick = ()=>openChat(card.dataset.char);
+        });
+        list.dataset.ready = '1';
+      } catch {
+        list.innerHTML = '<div style="text-align:center;color:var(--ink-faint);padding:30px">信号不太好，稍后再来。</div>';
+      }
+    }
+  }
+
+  // 进入某角色的聊天
+  async function openChat(charId){
+    currentChar = charId;
+    const a = AV[charId] || {};
+    // 头部头像 + 名字
+    $('#companionAvatarHead').innerHTML = `<img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'">`;
+    const nameEl = $('#companionName');
+    const card = $(`.contact-card[data-char="${charId}"] .cc-name`);
+    if (card) nameEl.textContent = card.textContent;
+    showView('chat');
+    tickClock();
+    const stream = $('#companionStream');
+    stream.innerHTML = '<div class="ph-row ai">'+avatarImg(charId,'ph-avatar small')+'<div class="col"><div class="ph-bubble thinking">……</div></div></div>';
+    try {
+      const { messages } = await api('/api/companion?char='+encodeURIComponent(charId));
+      render(messages);
+      try {
+        const { greeting } = await api('/api/companion/greeting', {
+          method:'POST', headers:{'content-type':'application/json'},
+          body: JSON.stringify({ char: charId }),
+        });
         if (greeting){
-          $('#companionStream').insertAdjacentHTML('beforeend',
-            rowHTML('assistant', greeting, new Date().toISOString()));
+          stream.insertAdjacentHTML('beforeend', rowHTML('assistant', greeting, new Date().toISOString()));
         }
       } catch {}
-      const s = $('#companionStream'); s.scrollTop = s.scrollHeight;
-      opened = true;
+      stream.scrollTop = stream.scrollHeight;
+      loaded[charId] = true;
     } catch {
-      stream.innerHTML = '<div class="ph-row ai">'+AVATAR+'<div class="col"><div class="ph-bubble">（信号不太好，稍后再找我吧。）</div></div></div>';
+      stream.innerHTML = '<div class="ph-row ai">'+avatarImg(charId,'ph-avatar small')+'<div class="col"><div class="ph-bubble">（信号不太好，稍后再找我吧。）</div></div></div>';
     }
     setTimeout(()=>$('#companionInput').focus(), 80);
   }
+
+  function backToContacts(){ showView('contacts'); }
   function close(){ $('#companionModal').classList.remove('show'); }
 
   async function send(){
+    if (!currentChar) return;
     const ta = $('#companionInput');
     const message = ta.value.trim();
     if (!message) return;
@@ -1283,14 +1372,14 @@ const Companion = (function(){
     ta.value = ''; ta.style.height = 'auto';
     stream.insertAdjacentHTML('beforeend', rowHTML('user', message, new Date().toISOString()));
     stream.insertAdjacentHTML('beforeend',
-      '<div class="ph-row ai" id="companionThinking">'+AVATAR+'<div class="col"><div class="ph-bubble thinking">……</div></div></div>');
+      '<div class="ph-row ai" id="companionThinking">'+avatarImg(currentChar,'ph-avatar small')+'<div class="col"><div class="ph-bubble thinking">……</div></div></div>');
     stream.scrollTop = stream.scrollHeight;
     $('#companionSend').disabled = true;
     if (window.Pet) Pet.onListen();
     try {
       const { reply } = await api('/api/companion/chat', {
         method:'POST', headers:{'content-type':'application/json'},
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ char: currentChar, message }),
       });
       $('#companionThinking').outerHTML = rowHTML('assistant', reply, new Date().toISOString());
       if (window.Pet) Pet.onReply(/累|烦|难|哭|怕|焦虑|孤独|委屈|失望|压力|崩溃|痛/.test(message));
@@ -1302,10 +1391,10 @@ const Companion = (function(){
     }
   }
 
-  return { open, close, send };
+  return { openContacts, openChat, backToContacts, close, send };
 })();
-$('#tabCompanion').onclick = Companion.open;
-$('#companionBack').onclick = Companion.close;
+$('#tabCompanion').onclick = Companion.openContacts;
+$('#companionBack').onclick = Companion.backToContacts;
 $('#companionSend').onclick = Companion.send;
 $('#companionModal').onclick = (e)=>{ if (e.target.id === 'companionModal') Companion.close(); };
 $('#companionInput').addEventListener('keydown',(e)=>{
