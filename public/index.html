@@ -647,6 +647,19 @@
     .chat-origin { font-size:11px; }
     #loginGate { align-items:center; }
 
+    /* 陪伴者手机皮肤：移动端铺满全屏，去掉外框圆角与留白（顶部不再漏出背景页） */
+    #companionModal { padding:0; align-items:stretch; }
+    .phone {
+      max-width:100%; width:100%;
+      height:100vh; height:100dvh;
+      border-radius:0; border:none;
+      box-shadow:none;
+    }
+    .phone::before { inset:0; border-radius:0; }
+    /* 状态栏避开刘海/灵动岛安全区 */
+    .phone-statusbar { padding-top:calc(12px + env(safe-area-inset-top)); }
+    .ph-input { margin-bottom:calc(14px + env(safe-area-inset-bottom)); }
+
     /* 状态栏：手机上精简，只留关键信息，固定单行不换行 */
     .statusbar { font-size:10px; gap:8px; padding:5px 10px;
       flex-wrap:nowrap; overflow:hidden; }
