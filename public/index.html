@@ -471,7 +471,12 @@
   /* 两个视图都撑满手机内部剩余高度，各自纵向布局 */
   #contactsView, #chatView { flex:1; min-height:0; display:flex; flex-direction:column; }
   /* 通讯录标题 */
-  .ph-title { padding:14px 22px 10px; }
+  .ph-title { padding:14px 22px 10px; display:flex; align-items:center; justify-content:space-between; }
+  .ph-close { width:38px; height:38px; flex:0 0 auto; border-radius:50%; border:none; cursor:pointer;
+    background:var(--win-face); color:var(--ink-soft); font-size:16px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 2px 8px rgba(120,40,80,.15); }
+  .ph-close:hover { background:var(--dialog); }
   .ph-title-main { font-family:var(--font-ui); font-weight:800; font-size:26px; color:var(--ink); letter-spacing:2px; }
   .ph-title-sub { display:block; font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); letter-spacing:4px; margin-top:2px; }
   #contactsList { flex:1; overflow-y:auto; padding:4px 12px 16px; display:flex; flex-direction:column; gap:12px; }
@@ -509,9 +514,11 @@
   /* 顶栏「通讯录」标签的未读红点 */
   #tabCompanion.has-dot { position:relative; }
   #tabCompanion.has-dot::after {
-    content:""; position:absolute; top:3px; right:2px; width:7px; height:7px;
-    border-radius:50%; background:#ff3b6a; box-shadow:0 0 0 1.5px var(--win-face);
+    content:""; position:absolute; top:1px; right:0; width:11px; height:11px;
+    border-radius:50%; background:#ff3b6a; box-shadow:0 0 0 2px var(--win-face), 0 0 6px rgba(255,59,106,.7);
+    animation:dotpulse 1.6s ease-in-out infinite;
   }
+  @keyframes dotpulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.25); } }
 
   /* ============================================================
      sysmon.exe — 情绪监视器（面板）
@@ -560,6 +567,16 @@
   .toast .body { font-size:13px; line-height:1.7; color:var(--ink); }
   .toast .body b { color:var(--accent); }
   .toast .titlebar .ctrls b { cursor:pointer; }
+  /* 新消息通知：避开旧信气泡的位置，带头像 */
+  #msgToast { bottom:120px; }
+  .msg-toast-row { display:flex; align-items:center; gap:10px; }
+  .msg-toast-av { width:38px; height:38px; flex:0 0 auto; border-radius:50%; overflow:hidden; position:relative;
+    background:linear-gradient(155deg, var(--title-1), var(--title-2));
+    display:flex; align-items:center; justify-content:center; color:#fff; font-size:17px; font-weight:700; }
+  .msg-toast-av img { width:100%; height:100%; object-fit:cover; }
+  .msg-toast-tx { flex:1; min-width:0; }
+  .msg-toast-tx .nm { font-weight:700; }
+  .msg-toast-tx .pv { color:var(--ink-soft); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #letterModal .win { max-width:500px; width:100%; margin:0; animation:pop .3s ease; }
   .letter-stamp { font-family:var(--font-mono); font-size:11.5px; color:var(--ink-soft);
     margin-bottom:12px; padding-bottom:10px; border-bottom:1px dotted var(--bevel-lo); line-height:1.6; }
@@ -875,8 +892,11 @@
     <!-- 视图一：通讯录 -->
     <div id="contactsView">
       <div class="ph-title">
-        <span class="ph-title-main">通讯录</span>
-        <span class="ph-title-sub">CONTACTS</span>
+        <div>
+          <span class="ph-title-main">通讯录</span>
+          <span class="ph-title-sub">CONTACTS</span>
+        </div>
+        <button class="ph-close" id="contactsClose" title="关闭">✕</button>
       </div>
       <div id="contactsList"></div>
     </div>
@@ -926,6 +946,16 @@
   <div class="body" id="letterToastBody">
     你有一封<b>旧信</b>。<br>要现在读读那时的自己吗？
   </div>
+</div>
+
+<!-- 陪伴者新消息通知气泡（登录时弹） -->
+<div class="win toast" id="msgToast">
+  <div class="titlebar">
+    <span class="tico">💬</span>
+    <span class="ttext">message — 新消息</span>
+    <span class="ctrls"><b id="msgDismiss">✕</b></span>
+  </div>
+  <div class="body" id="msgToastBody"></div>
 </div>
 
 <!-- 旧信阅读弹层 -->
@@ -1420,10 +1450,40 @@ const Companion = (function(){
     const total = (contacts||[]).reduce((s,c)=>s+(c.unread||0),0);
     $('#tabCompanion').classList.toggle('has-dot', total>0);
   }
-  // 登录后台静默拉一次，纯为点亮顶栏红点（也会触发后端主动生成）
-  async function checkUnread(){
-    try { const { contacts } = await api('/api/companion/contacts'); updateTabDot(contacts); } catch {}
+  // 登录后台静默拉一次，点亮顶栏红点（也会触发后端主动生成）；withToast=登录首次，弹通知气泡
+  async function checkUnread(withToast){
+    try {
+      const { contacts } = await api('/api/companion/contacts');
+      updateTabDot(contacts);
+      if (withToast) maybeMsgToast(contacts);
+    } catch {}
   }
+  // 登录进首页时的新消息通知气泡（多个未读合并成一个，点击进通讯录）
+  function maybeMsgToast(contacts){
+    const un = (contacts||[]).filter(c=>c.unread>0);
+    if (!un.length) return;
+    // 每天最多弹一次，避免同一天反复登录反复弹
+    const todayKey = new Date().toDateString();
+    if (localStorage.getItem('xinji-msgtoast') === todayKey) return;
+    const total = un.reduce((s,c)=>s+c.unread,0);
+    let inner;
+    if (un.length === 1){
+      const c = un[0]; const a = AV[c.id] || { src:'', fallback:'?' };
+      inner = `<div class="msg-toast-row">
+        <span class="msg-toast-av"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'"></span>
+        <div class="msg-toast-tx"><div class="nm">${escapeHTML(c.name)} <b>给你发来消息</b></div><div class="pv">${escapeHTML(c.preview||'')}</div></div>
+      </div>`;
+    } else {
+      inner = `<div class="msg-toast-row">
+        <span class="msg-toast-av">${total>9?'99':total}</span>
+        <div class="msg-toast-tx"><div class="nm">你有 <b>${total}</b> 条新消息</div><div class="pv">${un.map(c=>escapeHTML(c.name)).join('、')} 都在等你回</div></div>
+      </div>`;
+    }
+    $('#msgToastBody').innerHTML = inner;
+    $('#msgToast').classList.add('show');
+    localStorage.setItem('xinji-msgtoast', todayKey);
+  }
+  function dismissMsgToast(){ $('#msgToast').classList.remove('show'); }
 
   async function send(){
     if (!currentChar) return;
@@ -1453,12 +1513,16 @@ const Companion = (function(){
     }
   }
 
-  return { openContacts, openChat, backToContacts, close, send, checkUnread };
+  return { openContacts, openChat, backToContacts, close, send, checkUnread, dismissMsgToast };
 })();
 $('#tabCompanion').onclick = Companion.openContacts;
 $('#companionBack').onclick = Companion.backToContacts;
+$('#contactsClose').onclick = Companion.close;
 $('#companionSend').onclick = Companion.send;
 $('#companionModal').onclick = (e)=>{ if (e.target.id === 'companionModal') Companion.close(); };
+// 新消息通知气泡：点气泡进通讯录，点✕关闭
+$('#msgToastBody').onclick = ()=>{ Companion.dismissMsgToast(); Companion.openContacts(); };
+$('#msgDismiss').onclick = (e)=>{ e.stopPropagation(); Companion.dismissMsgToast(); };
 $('#companionInput').addEventListener('keydown',(e)=>{
   if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); Companion.send(); }
 });
@@ -1812,7 +1876,7 @@ function startApp(me){
   $('#stUser').textContent = me.name + (me.role === 'admin' ? ' ★' : '');
   loadTimeline();
   Pet.init();
-  Companion.checkUnread(); // 点亮顶栏未读红点（也触发主动消息生成）
+  Companion.checkUnread(true); // 点亮顶栏红点 + 登录时弹新消息通知
 }
 (async function boot(){
   try {
