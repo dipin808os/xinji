@@ -8,6 +8,8 @@ data/users.json
 data/session-secret
 # 用户的私密记录
 data/entries.json
+# 陪伴者对话记录
+data/companion.json
 
 # 允许提交示例
 !data/users.example.json
@@ -18,3 +20,5 @@ shot-*.png
 new-*.png
 os-*.png
 chk-*.png
+# 开发参考图（不入库）
+ref-companion-chat.jpg

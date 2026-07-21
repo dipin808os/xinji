@@ -354,6 +354,119 @@
   #chatInput::placeholder { color:var(--ink-faint); }
 
   /* ============================================================
+     沈砚辞 — 手机聊天皮肤（companion.exe）
+     ============================================================ */
+  #companionModal { padding:16px; }
+  .phone {
+    width:100%; max-width:400px; height:min(86vh, 780px);
+    display:flex; flex-direction:column; position:relative; overflow:hidden;
+    border-radius:34px; animation:pop .3s ease;
+    background:var(--bg);
+    border:2px solid var(--bevel-dk);
+    box-shadow:0 18px 50px rgba(120,40,80,.4), inset 0 0 0 6px var(--win-face);
+  }
+  /* 手机屏内的粉格纹 + 吉祥物淡背景 */
+  .phone::before {
+    content:""; position:absolute; inset:6px; border-radius:28px; pointer-events:none; z-index:0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size:22px 22px, 22px 22px;
+    opacity:.9;
+  }
+  .phone-mascot {
+    position:absolute; left:50%; top:52%; transform:translate(-50%,-50%);
+    font-size:120px; opacity:.06; z-index:0; pointer-events:none; user-select:none;
+  }
+  .phone > * { position:relative; z-index:1; }
+  /* 顶部系统状态栏 */
+  .phone-statusbar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 22px 4px; font-family:var(--font-mono); font-size:13px;
+    color:var(--ink); font-weight:700;
+  }
+  .phone-statusbar .ph-right { display:flex; align-items:center; gap:5px; font-size:12px; letter-spacing:.5px; }
+  /* 聊天头部胶囊 */
+  .ph-header {
+    display:flex; align-items:center; gap:10px; margin:6px 12px 8px;
+    padding:8px 10px; border-radius:22px;
+    background:var(--win-face); box-shadow:0 3px 10px rgba(120,40,80,.12);
+  }
+  .ph-back, .ph-set {
+    width:38px; height:38px; flex:0 0 auto; border-radius:50%; border:none; cursor:pointer;
+    background:var(--win-face-2); color:var(--ink-soft); font-size:16px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:inset 0 0 0 1px var(--bevel-lo);
+  }
+  .ph-back:hover, .ph-set:hover { background:var(--dialog); }
+  .ph-htext { flex:1; text-align:center; line-height:1.15; }
+  .ph-htext .nm { font-family:var(--font-ui); font-weight:800; font-size:19px; color:var(--ink); letter-spacing:1px; }
+  .ph-htext .sub { font-family:var(--font-mono); font-size:9.5px; color:var(--ink-faint); letter-spacing:2px; }
+  /* 头像 */
+  .ph-avatar { width:42px; height:42px; flex:0 0 auto; border-radius:50%; overflow:hidden;
+    background:linear-gradient(155deg, var(--title-1), var(--title-2));
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:19px; font-weight:700; box-shadow:0 2px 6px rgba(120,40,80,.25); }
+  .ph-avatar img { width:100%; height:100%; object-fit:cover; display:block; }
+  .ph-header .ph-avatar { width:38px; height:38px; font-size:17px; }
+  /* 消息流 */
+  #companionStream {
+    flex:1; overflow-y:auto; min-height:0; padding:8px 14px 4px;
+    display:flex; flex-direction:column; gap:14px;
+  }
+  #companionStream::-webkit-scrollbar { width:6px; }
+  #companionStream::-webkit-scrollbar-thumb { background:var(--bevel-lo); border-radius:3px; }
+  .ph-row { display:flex; align-items:flex-end; gap:8px; max-width:100%; }
+  .ph-row.me { flex-direction:row-reverse; }
+  .ph-row .col { display:flex; flex-direction:column; max-width:74%; }
+  .ph-row.me .col { align-items:flex-end; }
+  .ph-bubble {
+    position:relative; padding:11px 14px; font-size:14.5px; line-height:1.7;
+    border-radius:18px; word-break:break-word; white-space:pre-wrap;
+    box-shadow:0 2px 7px rgba(120,40,80,.1);
+  }
+  .ph-row.ai .ph-bubble {
+    background:var(--win-face); color:var(--ink); border-bottom-left-radius:6px;
+  }
+  .ph-row.me .ph-bubble {
+    background:linear-gradient(180deg, var(--title-1), var(--title-2)); color:#fff;
+    border-bottom-right-radius:6px;
+  }
+  /* AI 气泡右下角小兔子印章 */
+  .ph-row.ai .ph-bubble::after {
+    content:"🐰"; position:absolute; right:-6px; bottom:-8px; font-size:15px;
+    filter:saturate(.6) hue-rotate(-10deg) brightness(1.05); opacity:.85;
+  }
+  .ph-time { font-family:var(--font-mono); font-size:9.5px; color:var(--ink-faint);
+    margin-top:5px; padding:0 4px; }
+  .ph-bubble.thinking { color:var(--ink-soft); font-style:italic; }
+  .ph-avatar.small { width:34px; height:34px; font-size:15px; }
+  /* 底部输入胶囊 */
+  .ph-input {
+    display:flex; align-items:center; gap:8px; margin:6px 12px 14px;
+    padding:6px 6px 6px 8px; border-radius:26px;
+    background:var(--win-face); box-shadow:0 3px 12px rgba(120,40,80,.15);
+  }
+  .ph-plus { width:34px; height:34px; flex:0 0 auto; border-radius:50%; border:none; cursor:default;
+    background:var(--win-face-2); color:var(--ink-soft); font-size:19px;
+    display:flex; align-items:center; justify-content:center; box-shadow:inset 0 0 0 1px var(--bevel-lo); }
+  #companionInput {
+    flex:1; border:none; background:transparent; resize:none; outline:none;
+    font-family:var(--font-ui); font-size:14.5px; color:var(--ink); line-height:1.5;
+    min-height:22px; max-height:96px; padding:6px 4px; font-style:italic;
+  }
+  #companionInput::placeholder { color:var(--ink-faint); font-style:italic; }
+  .ph-send { width:40px; height:40px; flex:0 0 auto; border-radius:50%; border:none; cursor:pointer;
+    background:linear-gradient(155deg, var(--title-1), var(--title-2)); color:#fff; font-size:19px;
+    display:flex; align-items:center; justify-content:center; box-shadow:0 2px 7px rgba(255,95,160,.5);
+    transition:transform .1s; }
+  .ph-send:hover { transform:scale(1.06); }
+  .ph-send:disabled { opacity:.5; cursor:default; transform:none; }
+  .ph-spark { width:34px; height:34px; flex:0 0 auto; border-radius:50%; border:none; cursor:default;
+    background:var(--win-face-2); font-size:15px;
+    display:flex; align-items:center; justify-content:center; box-shadow:inset 0 0 0 1px var(--bevel-lo); }
+
+  /* ============================================================
      sysmon.exe — 情绪监视器（面板）
      ============================================================ */
   #statsModal .win { max-width:540px; width:100%; margin:0; animation:pop .3s ease; }
@@ -584,6 +697,7 @@
   <div class="tab" data-scroll="explorerWin">🗂 时间线</div>
   <div class="tab" id="tabStats">📊 面板</div>
   <div class="tab" id="tabLookback">✦ 回望</div>
+  <div class="tab" id="tabCompanion">☕ 砚辞</div>
   <div class="tab" id="tabTheme">☾ 主题</div>
 </div>
 
@@ -684,6 +798,33 @@
         <span class="field"><textarea id="chatInput" placeholder="接着说点什么…… [Enter 发送]"></textarea></span>
         <button class="btn primary" id="chatSend">说(S)</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- 沈砚辞 · 手机聊天皮肤 -->
+<div class="modal" id="companionModal">
+  <div class="phone">
+    <div class="phone-mascot">🐱</div>
+    <div class="phone-statusbar">
+      <span id="phClock">--:--</span>
+      <span class="ph-right"><span>••••</span><span>5G</span><span>🔋</span></span>
+    </div>
+    <div class="ph-header">
+      <button class="ph-back" id="companionBack" title="返回">←</button>
+      <div class="ph-avatar"><img id="companionAvatarHead" src="companion.jpg" alt="" onerror="this.style.display='none';this.parentNode.textContent='砚'"></div>
+      <div class="ph-htext">
+        <div class="nm">沈砚辞</div>
+        <div class="sub">ACTIVE RECORD</div>
+      </div>
+      <button class="ph-set" title="设置">⚙</button>
+    </div>
+    <div id="companionStream"></div>
+    <div class="ph-input">
+      <button class="ph-plus" tabindex="-1">＋</button>
+      <textarea id="companionInput" placeholder="Type a message…" rows="1"></textarea>
+      <button class="ph-send" id="companionSend" title="发送">↑</button>
+      <button class="ph-spark" tabindex="-1">✨</button>
     </div>
   </div>
 </div>
@@ -1069,6 +1210,98 @@ $('#chatInput').addEventListener('keydown',(e)=>{
 $('.chatCloseX').onclick = closeChat;
 $('#chatModal').onclick = (e)=>{ if (e.target.id === 'chatModal') closeChat(); };
 
+/* ---------- 陪伴者 · 沈砚辞（手机聊天皮肤） ---------- */
+const Companion = (function(){
+  let opened = false;
+  const AVATAR = '<span class="ph-avatar small"><img src="companion.jpg" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'砚\'"></span>';
+
+  function rowHTML(role, content, createdAt){
+    const me = role === 'user';
+    const time = createdAt ? fmtTime(createdAt) : '';
+    const bubble = `<div class="ph-bubble">${escapeHTML(content)}</div>`;
+    const timeEl = time ? `<div class="ph-time">${time}</div>` : '';
+    if (me){
+      return `<div class="ph-row me"><div class="col">${bubble}${timeEl}</div></div>`;
+    }
+    return `<div class="ph-row ai">${AVATAR}<div class="col">${bubble}${timeEl}</div></div>`;
+  }
+  function render(messages){
+    const stream = $('#companionStream');
+    stream.innerHTML = (messages||[]).map(m=>rowHTML(m.role, m.content, m.createdAt)).join('');
+    stream.scrollTop = stream.scrollHeight;
+  }
+  function tickClock(){
+    const n = new Date();
+    $('#phClock').textContent = `${pad(n.getHours())}:${pad(n.getMinutes())}`;
+  }
+
+  async function open(){
+    $('#companionModal').classList.add('show');
+    tickClock();
+    const stream = $('#companionStream');
+    if (!opened){
+      stream.innerHTML = '<div class="ph-row ai">'+AVATAR+'<div class="col"><div class="ph-bubble thinking">……</div></div></div>';
+    }
+    try {
+      const { messages } = await api('/api/companion');
+      render(messages);
+      // 开场主动问候（今天首次搭话才会返回一句）
+      try {
+        const { greeting } = await api('/api/companion/greeting', { method:'POST' });
+        if (greeting){
+          $('#companionStream').insertAdjacentHTML('beforeend',
+            rowHTML('assistant', greeting, new Date().toISOString()));
+        }
+      } catch {}
+      const s = $('#companionStream'); s.scrollTop = s.scrollHeight;
+      opened = true;
+    } catch {
+      stream.innerHTML = '<div class="ph-row ai">'+AVATAR+'<div class="col"><div class="ph-bubble">（信号不太好，稍后再找我吧。）</div></div></div>';
+    }
+    setTimeout(()=>$('#companionInput').focus(), 80);
+  }
+  function close(){ $('#companionModal').classList.remove('show'); }
+
+  async function send(){
+    const ta = $('#companionInput');
+    const message = ta.value.trim();
+    if (!message) return;
+    const stream = $('#companionStream');
+    ta.value = ''; ta.style.height = 'auto';
+    stream.insertAdjacentHTML('beforeend', rowHTML('user', message, new Date().toISOString()));
+    stream.insertAdjacentHTML('beforeend',
+      '<div class="ph-row ai" id="companionThinking">'+AVATAR+'<div class="col"><div class="ph-bubble thinking">……</div></div></div>');
+    stream.scrollTop = stream.scrollHeight;
+    $('#companionSend').disabled = true;
+    if (window.Pet) Pet.onListen();
+    try {
+      const { reply } = await api('/api/companion/chat', {
+        method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ message }),
+      });
+      $('#companionThinking').outerHTML = rowHTML('assistant', reply, new Date().toISOString());
+      if (window.Pet) Pet.onReply(/累|烦|难|哭|怕|焦虑|孤独|委屈|失望|压力|崩溃|痛/.test(message));
+    } catch {
+      $('#companionThinking').outerHTML = rowHTML('assistant', '（消息没发出去，再说一次好吗。）', new Date().toISOString());
+    } finally {
+      $('#companionSend').disabled = false;
+      stream.scrollTop = stream.scrollHeight;
+    }
+  }
+
+  return { open, close, send };
+})();
+$('#tabCompanion').onclick = Companion.open;
+$('#companionBack').onclick = Companion.close;
+$('#companionSend').onclick = Companion.send;
+$('#companionModal').onclick = (e)=>{ if (e.target.id === 'companionModal') Companion.close(); };
+$('#companionInput').addEventListener('keydown',(e)=>{
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); Companion.send(); }
+});
+$('#companionInput').addEventListener('input', function(){
+  this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 96) + 'px';
+});
+
 /* ---------- 情绪面板 sysmon.exe ---------- */
 function renderStats(){
   const box = $('#statsBody');
@@ -1189,7 +1422,7 @@ $('#letterChatBtn').onclick = ()=>{ if (letterEntry){ closeLetter(); openChat(le
 function showLoginGate(){
   $('#loginGate').classList.add('show');
   // 关掉可能开着的弹层，避免登录后残留
-  ['#modal','#chatModal','#statsModal','#letterModal'].forEach(s=>$(s).classList.remove('show'));
+  ['#modal','#chatModal','#companionModal','#statsModal','#letterModal'].forEach(s=>$(s).classList.remove('show'));
   $('#letterToast').classList.remove('show');
   setTimeout(()=>$('#loginName').focus(), 60);
 }
