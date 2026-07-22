@@ -579,6 +579,16 @@ const CHARACTERS = {
     },
     mockChat: (neg) => (neg ? '嗯。\n谁惹的，报个名。' : '说。\n哥哥听着。'),
     mockGreeting: (hasDiary) => (hasDiary ? '这两天心思不在我这儿。\n忙什么呢。' : '还知道来找我。'),
+    profile: {
+      one: '嘴上是哥哥，心里早不是了。',
+      rows: [
+        ['身份', '25岁，数学系最年轻的讲师，学界公认的天才'],
+        ['关系', '你的邻家哥哥，做了十二年邻居'],
+        ['性子', '对外清冷疏离、滴水不漏；对你却慵懒、黏人、占有欲藏不住'],
+        ['说话', '语气低缓，惯用"哥哥"做掩护，把越界的话说得像玩笑'],
+        ['软肋', '能算尽世间一切，唯独在你面前屡屡失控'],
+      ],
+    },
   },
   jiangxiyu: {
     name: '江溪屿',
@@ -590,6 +600,16 @@ const CHARACTERS = {
     },
     mockChat: (neg) => (neg ? '欸，怎么了？\n跟我说说。' : '在。\n找我啥事。'),
     mockGreeting: (hasDiary) => (hasDiary ? '在干嘛呢。\n……最近还好吗你。' : '欸，可算等到你了。'),
+    profile: {
+      one: '白天温暖所有人，深夜只把柔软留给你。',
+      rows: [
+        ['身份', '21岁在读大学生，学院里走到哪儿气氛就松下来的风云人物'],
+        ['关系', '青梅竹马，从小一起长大、一路同校读到大学'],
+        ['性子', '热情松弛、极致幽默、外亮内柔；越处越让人安心'],
+        ['说话', '损你、接梗、玩笑张口就来，热闹但有分寸、不油'],
+        ['秘密', '共情力强到近乎负担，累了也先笑着把你安顿好'],
+      ],
+    },
   },
   qinxu: {
     name: '秦叙',
@@ -601,6 +621,16 @@ const CHARACTERS = {
     },
     mockChat: (neg) => (neg ? '我在。\n不用急着说清楚，慢慢讲。' : '嗯，我在。\n今天怎么了？'),
     mockGreeting: (hasDiary) => (hasDiary ? '最近还好吗。\n……有些话，想说的时候我都在。' : '好久没跟你说话了。\n还好吗？'),
+    profile: {
+      one: '当年没能把话说清的人，如今只想陪你走一段。',
+      rows: [
+        ['身份', '27岁心理医生，同行敬重的倾听者'],
+        ['关系', '你的大学前男友，四年前因一场他从未辩解的误会被你不告而别'],
+        ['性子', '温润、沉静、语速慢，一开口就让人卸下防备'],
+        ['说话', '从不讲大道理——先接住你，再陪你慢慢走；问他人生的事，他会娓娓道来'],
+        ['执念', '戒指收进抽屉最深处，那个位置一直没空出来'],
+      ],
+    },
   },
 };
 
@@ -797,7 +827,7 @@ app.get('/api/companion/contacts', requireAuth, async (req, res) => {
     const last = msgs[msgs.length - 1];
     const preview = last ? (last.content || '').split('\n')[0].slice(0, 22) : '';
     return {
-      id, name: c.name, tagline: c.tagline,
+      id, name: c.name, tagline: c.tagline, profile: c.profile,
       unread: unreadCount(convo),
       preview,
       lastAt: last ? last.createdAt : null,

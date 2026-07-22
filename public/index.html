@@ -512,6 +512,34 @@
   #tfNote::placeholder { color:var(--ink-faint); }
   .tf-panel-btns { display:flex; gap:10px; }
   .tf-panel-btns .btn { flex:1; }
+  /* 人设资料面板 */
+  #profilePanel {
+    position:absolute; inset:0; z-index:6; display:none;
+    align-items:center; justify-content:center; padding:20px;
+    background:rgba(80,30,55,.5);
+  }
+  #profilePanel.show { display:flex; }
+  .pf-card {
+    position:relative; width:100%; max-width:320px; max-height:86%; overflow-y:auto;
+    background:var(--win-face); border-radius:20px; padding:26px 20px 20px; text-align:center;
+    box-shadow:0 14px 44px rgba(120,40,80,.45); animation:pop .25s ease;
+  }
+  .pf-close { position:absolute; top:12px; right:12px; width:30px; height:30px; border:none; cursor:pointer;
+    border-radius:50%; background:var(--win-face-2); color:var(--ink-soft); font-size:13px;
+    display:flex; align-items:center; justify-content:center; }
+  .pf-avatar { width:76px; height:76px; margin:0 auto 12px; border-radius:50%; overflow:hidden;
+    background:linear-gradient(155deg, var(--title-1), var(--title-2));
+    display:flex; align-items:center; justify-content:center; color:#fff; font-size:32px; font-weight:700;
+    box-shadow:0 4px 12px rgba(120,40,80,.3); }
+  .pf-avatar img { width:100%; height:100%; object-fit:cover; }
+  .pf-name { font-family:var(--font-ui); font-weight:800; font-size:21px; color:var(--ink); letter-spacing:1px; }
+  .pf-tag { font-size:12px; color:var(--ink-soft); margin-top:4px; }
+  .pf-one { font-size:13.5px; color:var(--accent); margin:14px 4px 16px; line-height:1.7;
+    padding:10px 12px; background:var(--win-face-2); border-radius:12px; }
+  .pf-rows { text-align:left; display:flex; flex-direction:column; gap:11px; }
+  .pf-row { display:flex; gap:10px; font-size:13px; line-height:1.6; }
+  .pf-row .pf-k { flex:0 0 auto; width:34px; color:var(--accent); font-weight:700; }
+  .pf-row .pf-v { flex:1; color:var(--ink); }
   /* 两个视图都撑满手机内部剩余高度，各自纵向布局 */
   #contactsView, #chatView { flex:1; min-height:0; display:flex; flex-direction:column; }
   /* 通讯录标题 */
@@ -954,7 +982,7 @@
           <div class="nm" id="companionName">沈砚辞</div>
           <div class="sub">ACTIVE RECORD</div>
         </div>
-        <button class="ph-set" title="设置">⚙</button>
+        <button class="ph-set" id="companionSet" title="TA 是谁">⚙</button>
       </div>
       <div id="companionStream"></div>
       <div class="ph-input">
@@ -975,6 +1003,18 @@
           <button class="btn" id="tfCancel">取消</button>
           <button class="btn primary" id="tfConfirm">确认转账</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 人设资料面板（点聊天页右上 ⚙） -->
+    <div id="profilePanel">
+      <div class="pf-card">
+        <button class="pf-close" id="pfClose" title="关闭">✕</button>
+        <div class="pf-avatar" id="pfAvatar"></div>
+        <div class="pf-name" id="pfName"></div>
+        <div class="pf-tag" id="pfTag"></div>
+        <div class="pf-one" id="pfOne"></div>
+        <div class="pf-rows" id="pfRows"></div>
       </div>
     </div>
   </div>
@@ -1381,6 +1421,7 @@ const Companion = (function(){
   };
   let currentChar = null;
   const loaded = {}; // charId → 是否已拉过历史
+  const profiles = {}; // charId → {name,tagline,profile} 从 contacts 接口缓存，供设置面板用
 
   function avatarImg(charId, cls){
     const a = AV[charId] || { src:'', fallback:'?' };
@@ -1445,6 +1486,7 @@ const Companion = (function(){
     return fmtDate(iso).slice(5); // MM-DD
   }
   function renderContacts(contacts){
+    contacts.forEach(c=>{ profiles[c.id] = c; }); // 缓存供设置面板
     const list = $('#contactsList');
     list.innerHTML = contacts.map(c=>{
       const a = AV[c.id] || { src:'', fallback:'?' };
@@ -1618,7 +1660,24 @@ const Companion = (function(){
     cardEl.querySelector('.tf-foot').textContent = '已收款';
   }
 
-  return { openContacts, openChat, backToContacts, close, send, checkUnread, dismissMsgToast, openTransferPanel, closeTransferPanel, confirmTransfer, receiveTransfer };
+  // 点聊天页右上 ⚙ → 展示这个角色的人设资料
+  function openProfile(){
+    if (!currentChar) return;
+    const c = profiles[currentChar];
+    if (!c || !c.profile){ return; }
+    const a = AV[currentChar] || { src:'', fallback:'?' };
+    $('#pfAvatar').innerHTML = `<img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'">`;
+    $('#pfName').textContent = c.name;
+    $('#pfTag').textContent = c.tagline || '';
+    $('#pfOne').textContent = c.profile.one || '';
+    $('#pfRows').innerHTML = (c.profile.rows||[]).map(r=>
+      `<div class="pf-row"><span class="pf-k">${escapeHTML(r[0])}</span><span class="pf-v">${escapeHTML(r[1])}</span></div>`
+    ).join('');
+    $('#profilePanel').classList.add('show');
+  }
+  function closeProfile(){ $('#profilePanel').classList.remove('show'); }
+
+  return { openContacts, openChat, backToContacts, close, send, checkUnread, dismissMsgToast, openTransferPanel, closeTransferPanel, confirmTransfer, receiveTransfer, openProfile, closeProfile };
 })();
 $('#tabCompanion').onclick = Companion.openContacts;
 $('#companionBack').onclick = Companion.backToContacts;
@@ -1645,6 +1704,10 @@ $('#companionStream').addEventListener('click',(e)=>{
   const card = e.target.closest('.transfer-card');
   if (card) Companion.receiveTransfer(card);
 });
+// 人设资料：点聊天页 ⚙ 打开，点✕/遮罩关闭
+$('#companionSet').onclick = Companion.openProfile;
+$('#pfClose').onclick = Companion.closeProfile;
+$('#profilePanel').onclick = (e)=>{ if (e.target.id === 'profilePanel') Companion.closeProfile(); };
 
 /* ---------- 情绪面板 sysmon.exe ---------- */
 function renderStats(){
