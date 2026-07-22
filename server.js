@@ -229,6 +229,24 @@ function companionOf(store, ownerId, charId) {
   if (!bucket || Array.isArray(bucket.messages)) return { messages: [], updatedAt: null }; // 旧结构：忽略
   return bucket[charId] || { messages: [], updatedAt: null };
 }
+
+// ---------- 男主朋友圈「动态」的持久化（按 owner 分桶，独立于日记与聊天） ----------
+const MOMENTS_FILE = path.join(__dirname, 'data', 'moments.json');
+function readMoments() {
+  try { return JSON.parse(fs.readFileSync(MOMENTS_FILE, 'utf8')); } catch { return {}; }
+}
+function writeMoments(store) {
+  fs.writeFileSync(MOMENTS_FILE, JSON.stringify(store, null, 2));
+}
+function enqueueMomentsWrite(mutator) {
+  _writeChain = _writeChain.then(() => {
+    const store = readMoments();
+    const result = mutator(store);
+    writeMoments(store);
+    return result;
+  });
+  return _writeChain;
+}
 // 本地日期串（用于"每天最多主动一次"的节流）
 function localDateStr(d = new Date()) {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
@@ -573,6 +591,7 @@ const CHARACTERS = {
   shenyance: {
     name: '沈砚辞',
     tagline: '清冷占有欲 · 数学讲师',
+    momentCue: '（发一条朋友圈。内容是你此刻真实的生活片段——改论文、深夜的办公室、路过某处想起她之类，一两句，克制。可以极隐晦地藏一点对她的心思，但绝不点破、不提她名字。像你会发的那种冷淡又有留白的动态。）',
     prompt: SHEN_PROMPT,
     greetingCue: {
       withDiary: '（这是你们今天第一次搭话。你恰好知道她最近的状态，起个头让她愿意开口——一两句短话，别复述她写了什么，别煽情，别加括号动作，就是你随手打字发来的消息。）',
@@ -594,6 +613,7 @@ const CHARACTERS = {
   jiangxiyu: {
     name: '江溪屿',
     tagline: '松弛可靠 · 青梅竹马',
+    momentCue: '（发一条朋友圈。内容是你此刻的生活——打球、赶due、食堂新品、和朋友的糗事之类，一两句，松弛带点自嘲或玩梗，可配一个 emoji。可以隐隐藏一点对她的在意，但别点破、别提她名字。像你会发的那种热闹又不吵的动态。）',
     prompt: JIANG_PROMPT,
     greetingCue: {
       withDiary: '（这是你们今天第一次搭话。你刚下课/忙完，第一个想戳的人就是她；你也隐约感觉到她最近状态不太一样。用一两句轻松的短话起头，别复述她写了什么，就像随手发来的微信。）',
@@ -615,6 +635,7 @@ const CHARACTERS = {
   qinxu: {
     name: '秦叙',
     tagline: '温润心理医生 · 大学故人',
+    momentCue: '（发一条朋友圈。内容是你此刻的生活或一点温柔的感触——门诊后的黄昏、一句诊室外的观察、深夜的一点心绪之类，一两句，温润、有画面感。可以极克制地藏一点未散的旧情，但绝不点破、不提她名字。像你会发的那种安静耐读的动态。）',
     prompt: QIN_PROMPT,
     greetingCue: {
       withDiary: '（这是你们今天第一次搭话。你隐约察觉她最近心里压着事，以老同学/朋友的身份、温和地起个头，让她愿意开口——一两句短话，别点破你看出了什么，别说教。）',
@@ -928,6 +949,111 @@ app.post('/api/companion/chat', requireAuth, aiRateLimit, async (req, res) => {
     return c.messages;
   });
   res.json({ reply, messages: saved });
+});
+
+// ============================================================
+//  男主朋友圈「动态」——独立于日记，围观 + 点赞 + 评论 + 男主回评
+// ============================================================
+const MOMENTS_GAP_HOURS = Number(process.env.MOMENTS_GAP_HOURS || 6); // 隔多久才可能有新动态
+const MOMENTS_MAX_PER_DAY = Number(process.env.MOMENTS_MAX_PER_DAY || 4); // 每人每天最多生成几条
+const momentId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// 懒生成：打开动态页时按门禁给该 owner 生成 1 条男主动态（首次补到 2 条）。异常吞掉
+async function maybeGenPosts(uid) {
+  try {
+    const bucket = (readMoments()[uid]) || { posts: [] };
+    const posts = bucket.posts || [];
+    const now = Date.now();
+    const todayStr = new Date().toDateString();
+    const todayCount = posts.filter((p) => new Date(p.createdAt).toDateString() === todayStr).length;
+    const last = posts[0]; // 倒序存，最新在前
+    const gapOk = !last || (now - new Date(last.createdAt).getTime() >= MOMENTS_GAP_HOURS * 3600000);
+    const need = posts.length === 0 ? 2 : (gapOk && todayCount < MOMENTS_MAX_PER_DAY ? 1 : 0);
+    if (!need) return;
+
+    const ids = Object.keys(CHARACTERS);
+    for (let i = 0; i < need; i++) {
+      const char = ids[Math.floor(Math.random() * ids.length)];
+      const persona = CHARACTERS[char];
+      let text;
+      if (API_KEY) {
+        try {
+          text = sanitizeReply(await callClaude(persona.prompt, persona.momentCue || '（发一条朋友圈，一两句，符合你的人设，别点破对她的心思、别提她名字。）'));
+        } catch { text = ''; }
+      }
+      if (!text) text = persona.mockChat(false).split('\n')[0]; // 降级
+      const createdAt = new Date(now - i * 1000).toISOString(); // 略微错开时间
+      await enqueueMomentsWrite((store) => {
+        const b = store[uid] || { posts: [] };
+        b.posts.unshift({ id: momentId(), char, text, createdAt, liked: false, comments: [] });
+        store[uid] = b;
+      });
+    }
+  } catch (e) {
+    console.error('动态生成失败（忽略）：', e.message);
+  }
+}
+
+// ---------- GET /api/moments：拉取该 owner 的男主动态（含懒生成） ----------
+app.get('/api/moments', requireAuth, async (req, res) => {
+  const uid = req.user.id;
+  await maybeGenPosts(uid);
+  const bucket = readMoments()[uid] || { posts: [] };
+  const posts = (bucket.posts || []).map((p) => ({
+    id: p.id, char: p.char, name: CHARACTERS[p.char] ? CHARACTERS[p.char].name : p.char,
+    text: p.text, createdAt: p.createdAt, liked: !!p.liked, comments: p.comments || [],
+  }));
+  res.json({ posts });
+});
+
+// ---------- POST /api/moments/:id/like：切换点赞 ----------
+app.post('/api/moments/:id/like', requireAuth, async (req, res) => {
+  const uid = req.user.id;
+  const liked = await enqueueMomentsWrite((store) => {
+    const b = store[uid]; if (!b) return null;
+    const p = (b.posts || []).find((x) => x.id === req.params.id);
+    if (!p) return null;
+    p.liked = !p.liked;
+    return p.liked;
+  });
+  if (liked === null) return res.status(404).json({ error: '动态不存在' });
+  res.json({ liked });
+});
+
+// ---------- POST /api/moments/:id/comment：评论 + 男主回评 ----------
+app.post('/api/moments/:id/comment', requireAuth, aiRateLimit, async (req, res) => {
+  const uid = req.user.id;
+  const text = (req.body.text || '').trim().slice(0, 200);
+  if (!text) return res.status(400).json({ error: '内容为空' });
+
+  const bucket = readMoments()[uid] || { posts: [] };
+  const post = (bucket.posts || []).find((x) => x.id === req.params.id);
+  if (!post) return res.status(404).json({ error: '动态不存在' });
+  const persona = CHARACTERS[post.char];
+
+  // 生成男主对这条评论的回复
+  let reply;
+  if (API_KEY && persona) {
+    try {
+      const sys = persona.prompt;
+      const input = `这是你发的一条朋友圈动态：「${post.text}」\n她在下面评论了你：「${text}」\n用你的性子回复她这条评论，一两句短话，符合人设。`;
+      reply = sanitizeReply(await callClaude(sys, input));
+    } catch { reply = ''; }
+  }
+  if (!reply && persona) reply = persona.mockChat(false).split('\n')[0];
+
+  const now = new Date().toISOString();
+  const saved = await enqueueMomentsWrite((store) => {
+    const b = store[uid]; if (!b) return null;
+    const p = (b.posts || []).find((x) => x.id === req.params.id);
+    if (!p) return null;
+    if (!Array.isArray(p.comments)) p.comments = [];
+    p.comments.push({ id: momentId(), by: 'user', name: '我', text, createdAt: now });
+    if (reply) p.comments.push({ id: momentId(), by: p.char, name: persona ? persona.name : p.char, text: reply, createdAt: now });
+    return p.comments;
+  });
+  if (!saved) return res.status(404).json({ error: '动态不存在' });
+  res.json({ comments: saved });
 });
 
 // 启动迁移：把没有 owner 的存量记录归给管理员（首个 admin 用户）

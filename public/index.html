@@ -546,6 +546,33 @@
   .pf-row .pf-v { flex:1; color:var(--ink); }
   /* 两个视图都撑满手机内部剩余高度，各自纵向布局 */
   #contactsView, #chatView { flex:1; min-height:0; display:flex; flex-direction:column; }
+  /* 动态·朋友圈 */
+  #momentsList { flex:1; overflow-y:auto; padding:4px 12px 18px; display:flex; flex-direction:column; gap:12px; }
+  #momentsList::-webkit-scrollbar { width:6px; }
+  #momentsList::-webkit-scrollbar-thumb { background:var(--bevel-lo); border-radius:3px; }
+  .moment-card { background:var(--win-face); border-radius:16px; padding:14px 15px; box-shadow:0 3px 12px rgba(120,40,80,.1); }
+  .mc-head { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+  .mc-avatar { width:40px; height:40px; flex:0 0 auto; border-radius:50%; overflow:hidden; position:relative;
+    background:linear-gradient(155deg, var(--title-1), var(--title-2));
+    display:flex; align-items:center; justify-content:center; color:#fff; font-size:18px; font-weight:700; }
+  .mc-avatar img { width:100%; height:100%; object-fit:cover; }
+  .mc-name { font-family:var(--font-ui); font-weight:700; font-size:15px; color:var(--ink); flex:1; }
+  .mc-text { font-size:14.5px; line-height:1.7; color:var(--ink); white-space:pre-wrap; word-break:break-word; }
+  .mc-foot { display:flex; align-items:center; gap:16px; margin-top:11px; padding-top:9px; border-top:1px dashed var(--bevel-lo); }
+  .mc-time { flex:1; font-family:var(--font-mono); font-size:10px; color:var(--ink-faint); }
+  .mc-btn { border:none; background:none; cursor:pointer; font-size:13px; color:var(--ink-soft); display:flex; align-items:center; gap:4px; padding:2px 4px; }
+  .mc-btn.liked { color:#ff3b6a; }
+  .mc-comments { margin-top:10px; display:flex; flex-direction:column; gap:7px; }
+  .mc-cmt { font-size:13px; line-height:1.55; }
+  .mc-cmt .who { font-weight:700; color:var(--accent); }
+  .mc-cmt.me .who { color:var(--ink-soft); }
+  .mc-cmt-input { display:none; margin-top:9px; gap:7px; }
+  .mc-cmt-input.show { display:flex; }
+  .mc-cmt-input input { flex:1; border:none; outline:none; background:var(--win-face-2); border-radius:16px;
+    padding:8px 12px; font-size:13.5px; color:var(--ink); font-family:var(--font-ui); }
+  .mc-cmt-input input::placeholder { color:var(--ink-faint); }
+  .mc-cmt-input button { border:none; cursor:pointer; border-radius:16px; padding:0 14px; font-size:13px;
+    background:linear-gradient(155deg, var(--title-1), var(--title-2)); color:#fff; }
   /* 通讯录标题 */
   .ph-title { padding:14px 22px 10px; display:flex; align-items:center; justify-content:space-between; }
   .ph-close { width:38px; height:38px; flex:0 0 auto; border-radius:50%; border:none; cursor:pointer;
@@ -852,6 +879,7 @@
   <div class="tab" id="tabStats">📊 面板</div>
   <div class="tab" id="tabLookback">✦ 回望</div>
   <div class="tab" id="tabCompanion">☎ 通讯录</div>
+  <div class="tab" id="tabMoments">❀ 圈</div>
   <div class="tab" id="tabTheme">☾ 主题</div>
 </div>
 
@@ -1021,6 +1049,25 @@
         <div class="pf-rows" id="pfRows"></div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- 男主朋友圈 · 动态 -->
+<div class="modal" id="momentsModal">
+  <div class="phone">
+    <div class="phone-mascot">🐱</div>
+    <div class="phone-statusbar">
+      <span id="phClock2">--:--</span>
+      <span class="ph-right"><span>••••</span><span>5G</span><span>🔋</span></span>
+    </div>
+    <div class="ph-title">
+      <div>
+        <span class="ph-title-main">动态</span>
+        <span class="ph-title-sub">MOMENTS</span>
+      </div>
+      <button class="ph-close" id="momentsClose" title="关闭">✕</button>
+    </div>
+    <div id="momentsList"></div>
   </div>
 </div>
 
@@ -1718,6 +1765,106 @@ $('#companionSet').onclick = Companion.openProfile;
 $('#pfClose').onclick = Companion.closeProfile;
 $('#profilePanel').onclick = (e)=>{ if (e.target.id === 'profilePanel') Companion.closeProfile(); };
 
+/* ---------- 男主朋友圈 · 动态 ---------- */
+const Moments = (function(){
+  const AV = {
+    shenyance: { src:'companion.jpg', fallback:'砚' },
+    jiangxiyu: { src:'jiangxiyu.jpg', fallback:'溪' },
+    qinxu: { src:'qinxu.jpg', fallback:'叙' },
+  };
+  function avatar(char){
+    const a = AV[char] || { src:'', fallback:'?' };
+    return `<span class="mc-avatar"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'"></span>`;
+  }
+  function relTime(iso){
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff/60000), h = Math.floor(diff/3600000), d = Math.floor(diff/86400000);
+    if (m < 1) return '刚刚';
+    if (m < 60) return m+'分钟前';
+    if (h < 24) return h+'小时前';
+    if (d === 1) return '昨天';
+    if (d < 7) return d+'天前';
+    return fmtDate(iso).slice(5);
+  }
+  function cmtHTML(c){
+    const me = c.by === 'user';
+    return `<div class="mc-cmt${me?' me':''}"><span class="who">${escapeHTML(c.name)}：</span>${escapeHTML(c.text)}</div>`;
+  }
+  function cardHTML(p){
+    const cmts = (p.comments||[]).map(cmtHTML).join('');
+    return `<div class="moment-card" data-id="${p.id}">
+      <div class="mc-head">${avatar(p.char)}<span class="mc-name">${escapeHTML(p.name)}</span></div>
+      <div class="mc-text">${escapeHTML(p.text)}</div>
+      <div class="mc-foot">
+        <span class="mc-time">${relTime(p.createdAt)}</span>
+        <button class="mc-btn mc-like${p.liked?' liked':''}">${p.liked?'♥':'♡'} <span>赞</span></button>
+        <button class="mc-btn mc-cmt-btn">💬 <span>评论</span></button>
+      </div>
+      <div class="mc-comments">${cmts}</div>
+      <div class="mc-cmt-input"><input type="text" maxlength="200" placeholder="说点什么…"><button>发送</button></div>
+    </div>`;
+  }
+  function render(posts){
+    const list = $('#momentsList');
+    if (!posts.length){ list.innerHTML = '<div style="text-align:center;color:var(--ink-faint);padding:40px;font-family:var(--font-mono)">还没有动态_<br>过会儿再来看看</div>'; return; }
+    list.innerHTML = posts.map(cardHTML).join('');
+  }
+  async function open(){
+    $('#momentsModal').classList.add('show');
+    const n = new Date(); $('#phClock2').textContent = pad(n.getHours())+':'+pad(n.getMinutes());
+    const list = $('#momentsList');
+    if (!list.children.length) list.innerHTML = '<div style="text-align:center;color:var(--ink-faint);padding:40px;font-family:var(--font-mono)">加载中…</div>';
+    try {
+      const { posts } = await api('/api/moments');
+      render(posts);
+    } catch {
+      if (!list.querySelector('.moment-card')) list.innerHTML = '<div style="text-align:center;color:var(--ink-faint);padding:40px">信号不太好，稍后再来。</div>';
+    }
+  }
+  function close(){ $('#momentsModal').classList.remove('show'); }
+  async function like(card){
+    const id = card.dataset.id;
+    const btn = card.querySelector('.mc-like');
+    try {
+      const { liked } = await api('/api/moments/'+id+'/like', { method:'POST' });
+      btn.classList.toggle('liked', liked);
+      btn.innerHTML = (liked?'♥':'♡')+' <span>赞</span>';
+    } catch {}
+  }
+  async function submitComment(card){
+    const id = card.dataset.id;
+    const input = card.querySelector('.mc-cmt-input input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    const box = card.querySelector('.mc-comments');
+    box.insertAdjacentHTML('beforeend', cmtHTML({ by:'user', name:'我', text }));
+    box.insertAdjacentHTML('beforeend', '<div class="mc-cmt" id="mcThinking"><span class="who">…</span></div>');
+    try {
+      const { comments } = await api('/api/moments/'+id+'/comment', {
+        method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ text }),
+      });
+      box.innerHTML = (comments||[]).map(cmtHTML).join(''); // 用服务端结果重渲染，保证一致
+    } catch {
+      const t = $('#mcThinking'); if (t) t.outerHTML = '<div class="mc-cmt"><span class="who">…</span>没发出去，再试一次</div>';
+    }
+  }
+  return { open, close, like, submitComment };
+})();
+$('#tabMoments').onclick = Moments.open;
+$('#momentsClose').onclick = Moments.close;
+$('#momentsModal').onclick = (e)=>{ if (e.target.id === 'momentsModal') Moments.close(); };
+$('#momentsList').addEventListener('click',(e)=>{
+  const card = e.target.closest('.moment-card'); if (!card) return;
+  if (e.target.closest('.mc-like')) return Moments.like(card);
+  if (e.target.closest('.mc-cmt-btn')){ const box=card.querySelector('.mc-cmt-input'); box.classList.toggle('show'); if(box.classList.contains('show')) box.querySelector('input').focus(); return; }
+  if (e.target.closest('.mc-cmt-input button')) return Moments.submitComment(card);
+});
+$('#momentsList').addEventListener('keydown',(e)=>{
+  if (e.key==='Enter' && e.target.matches('.mc-cmt-input input')){ e.preventDefault(); const card=e.target.closest('.moment-card'); Moments.submitComment(card); }
+});
+
 /* ---------- 情绪面板 sysmon.exe ---------- */
 function renderStats(){
   const box = $('#statsBody');
@@ -1838,7 +1985,7 @@ $('#letterChatBtn').onclick = ()=>{ if (letterEntry){ closeLetter(); openChat(le
 function showLoginGate(){
   $('#loginGate').classList.add('show');
   // 关掉可能开着的弹层，避免登录后残留
-  ['#modal','#chatModal','#companionModal','#statsModal','#letterModal'].forEach(s=>$(s).classList.remove('show'));
+  ['#modal','#chatModal','#companionModal','#momentsModal','#statsModal','#letterModal'].forEach(s=>$(s).classList.remove('show'));
   $('#letterToast').classList.remove('show');
   setTimeout(()=>$('#loginName').focus(), 60);
 }

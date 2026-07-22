@@ -10,6 +10,7 @@ data/session-secret
 data/entries.json
 # 陪伴者对话记录
 data/companion.json
+data/moments.json
 
 # 允许提交示例
 !data/users.example.json
