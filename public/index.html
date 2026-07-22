@@ -443,6 +443,10 @@
   .ph-time { font-family:var(--font-mono); font-size:9.5px; color:var(--ink-faint);
     margin-top:5px; padding:0 4px; }
   .ph-bubble.thinking { color:var(--ink-soft); font-style:italic; }
+  /* 括号动作/神态：淡淡的舞台提示，不做成气泡 */
+  .ph-action { align-self:flex-start; font-size:12.5px; color:var(--ink-faint); font-style:italic;
+    padding:2px 4px; line-height:1.6; opacity:.85; }
+  .ph-row.me .col .ph-action { align-self:flex-end; }
   .ph-avatar.small { width:34px; height:34px; font-size:15px; }
   /* 底部输入胶囊 */
   .ph-input {
@@ -1437,17 +1441,22 @@ const Companion = (function(){
   function transferKey(part){ return 'xinji-tf-'+currentChar+'-'+part; }
   function bubbleOrCard(part, me){
     const t = part.match(TRANSFER_RE);
-    if (!t){ return `<div class="ph-bubble">${escapeHTML(part)}</div>`; }
-    const amt = Number(t[1]).toFixed(2);
-    const note = t[2].trim();
-    // AI 转给你的可点收款；你转出的显示已发送
-    const received = me || localStorage.getItem(transferKey(part)) === '1';
-    const statusText = me ? '已转账' : (received ? '已收款' : '转账');
-    return `<div class="transfer-card${received?' received':''}${me?' out':''}" data-tf="${escapeHTML(part)}">
-      <div class="tf-top"><span class="tf-ico">¥</span><div class="tf-amt">¥${amt}</div></div>
-      ${note?`<div class="tf-note">${escapeHTML(note)}</div>`:''}
-      <div class="tf-foot">${statusText}</div>
-    </div>`;
+    if (t){
+      const amt = Number(t[1]).toFixed(2);
+      const note = t[2].trim();
+      const received = me || localStorage.getItem(transferKey(part)) === '1';
+      const statusText = me ? '已转账' : (received ? '已收款' : '转账');
+      return `<div class="transfer-card${received?' received':''}${me?' out':''}" data-tf="${escapeHTML(part)}">
+        <div class="tf-top"><span class="tf-ico">¥</span><div class="tf-amt">¥${amt}</div></div>
+        ${note?`<div class="tf-note">${escapeHTML(note)}</div>`:''}
+        <div class="tf-foot">${statusText}</div>
+      </div>`;
+    }
+    // 整条都是括号动作/神态 → 渲染成淡淡的舞台提示，而非普通气泡
+    if (/^[（(].*[）)]$/.test(part)){
+      return `<div class="ph-action">${escapeHTML(part)}</div>`;
+    }
+    return `<div class="ph-bubble">${escapeHTML(part)}</div>`;
   }
   function rowHTML(role, content, createdAt){
     const me = role === 'user';
