@@ -985,7 +985,7 @@ async function maybeGenPosts(uid) {
       const createdAt = new Date(now - i * 1000).toISOString(); // 略微错开时间
       await enqueueMomentsWrite((store) => {
         const b = store[uid] || { posts: [] };
-        b.posts.unshift({ id: momentId(), char, text, createdAt, liked: false, comments: [] });
+        b.posts.unshift({ id: momentId(), author: 'char', char, text, createdAt, liked: false, comments: [] });
         store[uid] = b;
       });
     }
@@ -994,14 +994,70 @@ async function maybeGenPosts(uid) {
   }
 }
 
+// ---------- POST /api/moments：我发一条朋友圈 → 随机 1-2 个男主马上来点赞/评论 ----------
+app.post('/api/moments', requireAuth, aiRateLimit, async (req, res) => {
+  const uid = req.user.id;
+  const text = (req.body.text || '').trim().slice(0, 500);
+  if (!text) return res.status(400).json({ error: '内容为空' });
+
+  const now = new Date().toISOString();
+  const postId = momentId();
+  // 先落盘我的帖子
+  await enqueueMomentsWrite((store) => {
+    const b = store[uid] || { posts: [] };
+    b.posts.unshift({ id: postId, author: 'user', char: null, text, createdAt: now, liked: false, likedByChars: [], comments: [] });
+    store[uid] = b;
+  });
+
+  // 随机挑 1-2 个男主来互动
+  const ids = Object.keys(CHARACTERS).sort(() => Math.random() - 0.5);
+  const reactors = ids.slice(0, 1 + Math.floor(Math.random() * 2)); // 1 或 2 个
+  for (const char of reactors) {
+    const persona = CHARACTERS[char];
+    // 每个男主：大概率点赞 + 生成一句评论
+    let comment = '';
+    if (API_KEY) {
+      try {
+        const input = `她（你在意的人）在朋友圈发了一条动态：「${text}」\n用你的性子在底下评论一句，一两句短话，符合人设，别客套、别浮夸。`;
+        comment = sanitizeReply(await callClaude(persona.prompt, input));
+      } catch { comment = ''; }
+    }
+    if (!comment) comment = persona.mockChat(false).split('\n')[0];
+    const liked = Math.random() < 0.7; // 70% 也点个赞
+    await enqueueMomentsWrite((store) => {
+      const b = store[uid]; if (!b) return;
+      const p = (b.posts || []).find((x) => x.id === postId);
+      if (!p) return;
+      if (liked) { p.likedByChars = p.likedByChars || []; if (!p.likedByChars.includes(char)) p.likedByChars.push(char); }
+      if (comment) { p.comments = p.comments || []; p.comments.push({ id: momentId(), by: char, name: persona.name, text: comment, createdAt: new Date().toISOString() }); }
+    });
+  }
+
+  // 返回最新的这条帖子（含男主反应）
+  const b = readMoments()[uid] || { posts: [] };
+  const p = (b.posts || []).find((x) => x.id === postId);
+  res.json({
+    post: p ? {
+      id: p.id, author: 'user', char: null, name: '我', text: p.text, createdAt: p.createdAt,
+      liked: !!p.liked, likedByChars: (p.likedByChars || []).map((c) => CHARACTERS[c] ? CHARACTERS[c].name : c),
+      comments: p.comments || [],
+    } : null,
+  });
+});
+
 // ---------- GET /api/moments：拉取该 owner 的男主动态（含懒生成） ----------
 app.get('/api/moments', requireAuth, async (req, res) => {
   const uid = req.user.id;
   await maybeGenPosts(uid);
   const bucket = readMoments()[uid] || { posts: [] };
   const posts = (bucket.posts || []).map((p) => ({
-    id: p.id, char: p.char, name: CHARACTERS[p.char] ? CHARACTERS[p.char].name : p.char,
-    text: p.text, createdAt: p.createdAt, liked: !!p.liked, comments: p.comments || [],
+    id: p.id,
+    author: p.author || 'char',                    // 'user' = 我发的，'char' = 男主发的
+    char: p.char,
+    name: p.author === 'user' ? '我' : (CHARACTERS[p.char] ? CHARACTERS[p.char].name : p.char),
+    text: p.text, createdAt: p.createdAt, liked: !!p.liked,
+    likedByChars: (p.likedByChars || []).map((c) => CHARACTERS[c] ? CHARACTERS[c].name : c), // 男主点赞（用于我的帖）
+    comments: p.comments || [],
   }));
   res.json({ posts });
 });

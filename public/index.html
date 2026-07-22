@@ -573,6 +573,25 @@
   .mc-cmt-input input::placeholder { color:var(--ink-faint); }
   .mc-cmt-input button { border:none; cursor:pointer; border-radius:16px; padding:0 14px; font-size:13px;
     background:linear-gradient(155deg, var(--title-1), var(--title-2)); color:#fff; }
+  /* 我发的帖：换个头像底色区分 */
+  .moment-card.mine .mc-avatar { background:linear-gradient(155deg, #ffb3d1, #ff8ec0); }
+  /* 男主点赞行 */
+  .mc-likes { margin-top:9px; padding:7px 10px; background:var(--win-face-2); border-radius:10px;
+    font-size:12.5px; color:var(--ink-soft); }
+  .mc-likes b { color:var(--accent); font-weight:400; }
+  /* 发朋友圈面板 */
+  #postPanel { position:absolute; inset:0; z-index:6; display:none; align-items:center; justify-content:center;
+    padding:22px; background:rgba(80,30,55,.5); }
+  #postPanel.show { display:flex; }
+  .post-card { width:100%; max-width:320px; background:var(--win-face); border-radius:18px; padding:18px 16px 14px;
+    box-shadow:0 12px 40px rgba(120,40,80,.42); animation:pop .25s ease; }
+  .post-title { font-size:15px; font-weight:700; color:var(--ink); margin-bottom:12px; }
+  #postText { width:100%; border:none; outline:none; background:var(--win-face-2); border-radius:12px;
+    padding:12px; font-size:14.5px; color:var(--ink); font-family:var(--font-ui); line-height:1.6;
+    resize:none; margin-bottom:14px; }
+  #postText::placeholder { color:var(--ink-faint); }
+  .post-btns { display:flex; gap:10px; }
+  .post-btns .btn { flex:1; }
   /* 通讯录标题 */
   .ph-title { padding:14px 22px 10px; display:flex; align-items:center; justify-content:space-between; }
   .ph-close { width:38px; height:38px; flex:0 0 auto; border-radius:50%; border:none; cursor:pointer;
@@ -1065,9 +1084,24 @@
         <span class="ph-title-main">动态</span>
         <span class="ph-title-sub">MOMENTS</span>
       </div>
-      <button class="ph-close" id="momentsClose" title="关闭">✕</button>
+      <div style="display:flex;gap:8px">
+        <button class="ph-close" id="momentsPost" title="发动态">✎</button>
+        <button class="ph-close" id="momentsClose" title="关闭">✕</button>
+      </div>
     </div>
     <div id="momentsList"></div>
+
+    <!-- 发朋友圈面板 -->
+    <div id="postPanel">
+      <div class="post-card">
+        <div class="post-title">发一条动态</div>
+        <textarea id="postText" maxlength="500" rows="4" placeholder="此刻想说点什么…"></textarea>
+        <div class="post-btns">
+          <button class="btn" id="postCancel">取消</button>
+          <button class="btn primary" id="postConfirm">发布</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1772,7 +1806,8 @@ const Moments = (function(){
     jiangxiyu: { src:'jiangxiyu.jpg', fallback:'溪' },
     qinxu: { src:'qinxu.jpg', fallback:'叙' },
   };
-  function avatar(char){
+  function avatar(char, mine){
+    if (mine) return `<span class="mc-avatar">我</span>`;
     const a = AV[char] || { src:'', fallback:'?' };
     return `<span class="mc-avatar"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'"></span>`;
   }
@@ -1792,15 +1827,19 @@ const Moments = (function(){
     return `<div class="mc-cmt${me?' me':''}"><span class="who">${escapeHTML(c.name)}：</span>${escapeHTML(c.text)}</div>`;
   }
   function cardHTML(p){
+    const mine = p.author === 'user';
     const cmts = (p.comments||[]).map(cmtHTML).join('');
-    return `<div class="moment-card" data-id="${p.id}">
-      <div class="mc-head">${avatar(p.char)}<span class="mc-name">${escapeHTML(p.name)}</span></div>
+    const likesLine = (mine && p.likedByChars && p.likedByChars.length)
+      ? `<div class="mc-likes">♥ <b>${p.likedByChars.map(escapeHTML).join('、')}</b> 赞了</div>` : '';
+    return `<div class="moment-card${mine?' mine':''}" data-id="${p.id}">
+      <div class="mc-head">${avatar(p.char, mine)}<span class="mc-name">${escapeHTML(p.name)}</span></div>
       <div class="mc-text">${escapeHTML(p.text)}</div>
       <div class="mc-foot">
         <span class="mc-time">${relTime(p.createdAt)}</span>
         <button class="mc-btn mc-like${p.liked?' liked':''}">${p.liked?'♥':'♡'} <span>赞</span></button>
         <button class="mc-btn mc-cmt-btn">💬 <span>评论</span></button>
       </div>
+      ${likesLine}
       <div class="mc-comments">${cmts}</div>
       <div class="mc-cmt-input"><input type="text" maxlength="200" placeholder="说点什么…"><button>发送</button></div>
     </div>`;
@@ -1850,10 +1889,36 @@ const Moments = (function(){
       const t = $('#mcThinking'); if (t) t.outerHTML = '<div class="mc-cmt"><span class="who">…</span>没发出去，再试一次</div>';
     }
   }
-  return { open, close, like, submitComment };
+  function openPost(){ $('#postText').value=''; $('#postPanel').classList.add('show'); setTimeout(()=>$('#postText').focus(),60); }
+  function closePost(){ $('#postPanel').classList.remove('show'); }
+  async function submitPost(){
+    const text = $('#postText').value.trim();
+    if (!text) return;
+    closePost();
+    const list = $('#momentsList');
+    // 乐观插入我的帖子（含"发布中"提示），顶部
+    const tmpId = 'tmp'+Date.now();
+    list.insertAdjacentHTML('afterbegin', cardHTML({ id:tmpId, author:'user', name:'我', text, createdAt:new Date().toISOString(), liked:false, likedByChars:[], comments:[{by:'sys',name:'…',text:'发布中，等他们冒泡…'}] }));
+    try {
+      const { post } = await api('/api/moments', {
+        method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ text }),
+      });
+      // 用服务端结果替换临时卡
+      const tmp = list.querySelector(`.moment-card[data-id="${tmpId}"]`);
+      if (tmp && post) tmp.outerHTML = cardHTML(post);
+    } catch {
+      const tmp = list.querySelector(`.moment-card[data-id="${tmpId}"]`);
+      if (tmp) tmp.querySelector('.mc-comments').innerHTML = '<div class="mc-cmt">没发出去，再试一次</div>';
+    }
+  }
+  return { open, close, like, submitComment, openPost, closePost, submitPost };
 })();
 $('#tabMoments').onclick = Moments.open;
 $('#momentsClose').onclick = Moments.close;
+$('#momentsPost').onclick = Moments.openPost;
+$('#postCancel').onclick = Moments.closePost;
+$('#postConfirm').onclick = Moments.submitPost;
+$('#postPanel').onclick = (e)=>{ if (e.target.id === 'postPanel') Moments.closePost(); };
 $('#momentsModal').onclick = (e)=>{ if (e.target.id === 'momentsModal') Moments.close(); };
 $('#momentsList').addEventListener('click',(e)=>{
   const card = e.target.closest('.moment-card'); if (!card) return;
