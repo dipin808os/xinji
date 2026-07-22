@@ -468,6 +468,50 @@
   .ph-spark { width:34px; height:34px; flex:0 0 auto; border-radius:50%; border:none; cursor:default;
     background:var(--win-face-2); font-size:15px;
     display:flex; align-items:center; justify-content:center; box-shadow:inset 0 0 0 1px var(--bevel-lo); }
+  .ph-plus { cursor:pointer; }
+  /* 转账卡片（微信同款暖黄） */
+  .transfer-card {
+    width:210px; max-width:74vw; padding:13px 14px; border-radius:12px; cursor:pointer;
+    background:linear-gradient(160deg, #fbb43b, #f79e35); color:#fff;
+    box-shadow:0 3px 10px rgba(240,150,40,.35); position:relative; overflow:hidden;
+  }
+  .transfer-card.out { cursor:default; }
+  .transfer-card .tf-top { display:flex; align-items:center; gap:9px; }
+  .transfer-card .tf-ico {
+    width:30px; height:30px; flex:0 0 auto; border-radius:50%; background:rgba(255,255,255,.28);
+    display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:700;
+  }
+  .transfer-card .tf-amt { font-size:20px; font-weight:700; letter-spacing:.5px; }
+  .transfer-card .tf-note { margin-top:8px; font-size:13px; opacity:.95; word-break:break-word; }
+  .transfer-card .tf-foot {
+    margin-top:10px; padding-top:7px; font-size:11px; opacity:.85;
+    border-top:1px solid rgba(255,255,255,.3);
+  }
+  .transfer-card.received { background:linear-gradient(160deg, #d8b98a, #c9a877); box-shadow:none; }
+  .transfer-card.received .tf-ico { background:rgba(255,255,255,.35); }
+  /* 转账发送面板（覆盖在手机内） */
+  #transferPanel {
+    position:absolute; inset:0; z-index:5; display:none;
+    align-items:center; justify-content:center; padding:22px;
+    background:rgba(80,30,55,.45);
+  }
+  #transferPanel.show { display:flex; }
+  .tf-panel {
+    width:100%; max-width:300px; background:var(--win-face); border-radius:18px; padding:20px 18px 16px;
+    box-shadow:0 12px 40px rgba(120,40,80,.4); animation:pop .25s ease;
+  }
+  .tf-panel-title { font-size:14px; color:var(--ink-soft); margin-bottom:14px; }
+  .tf-panel-title b { color:var(--ink); }
+  .tf-amount-row { display:flex; align-items:center; gap:8px; border-bottom:2px solid var(--bevel-lo); padding-bottom:8px; margin-bottom:14px; }
+  .tf-amount-row .tf-yen { font-size:26px; font-weight:700; color:var(--ink); }
+  #tfAmount { flex:1; border:none; outline:none; background:transparent; font-size:30px; font-weight:700;
+    color:var(--ink); width:100%; font-family:var(--font-ui); }
+  #tfAmount::-webkit-outer-spin-button, #tfAmount::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  #tfNote { width:100%; border:none; outline:none; background:var(--win-face-2); border-radius:9px;
+    padding:10px 12px; font-size:14px; color:var(--ink); font-family:var(--font-ui); margin-bottom:16px; }
+  #tfNote::placeholder { color:var(--ink-faint); }
+  .tf-panel-btns { display:flex; gap:10px; }
+  .tf-panel-btns .btn { flex:1; }
   /* 两个视图都撑满手机内部剩余高度，各自纵向布局 */
   #contactsView, #chatView { flex:1; min-height:0; display:flex; flex-direction:column; }
   /* 通讯录标题 */
@@ -914,10 +958,23 @@
       </div>
       <div id="companionStream"></div>
       <div class="ph-input">
-        <button class="ph-plus" tabindex="-1">＋</button>
+        <button class="ph-plus" id="companionPlus" title="转账">＋</button>
         <textarea id="companionInput" placeholder="Type a message…" rows="1"></textarea>
         <button class="ph-send" id="companionSend" title="发送">↑</button>
         <button class="ph-spark" tabindex="-1">✨</button>
+      </div>
+    </div>
+
+    <!-- 转账发送面板（覆盖在手机皮肤内） -->
+    <div id="transferPanel">
+      <div class="tf-panel">
+        <div class="tf-panel-title">转账给 <b id="tfTarget"></b></div>
+        <div class="tf-amount-row"><span class="tf-yen">¥</span><input id="tfAmount" type="number" inputmode="decimal" placeholder="0.00" min="0.01" max="9999" step="0.01"></div>
+        <input id="tfNote" type="text" maxlength="30" placeholder="留言（可选）">
+        <div class="tf-panel-btns">
+          <button class="btn" id="tfCancel">取消</button>
+          <button class="btn primary" id="tfConfirm">确认转账</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1332,13 +1389,31 @@ const Companion = (function(){
   function splitMsg(content){
     return String(content||'').split(/\n+/).map(s=>s.trim()).filter(Boolean);
   }
+  // 转账标记 [转账:金额:留言]
+  const TRANSFER_RE = /^\[转账:([0-9]+(?:\.[0-9]{1,2})?):([^\]]*)\]$/;
+  // 一条转账已收款的本地记忆键（按 角色+消息唯一标识）
+  function transferKey(part){ return 'xinji-tf-'+currentChar+'-'+part; }
+  function bubbleOrCard(part, me){
+    const t = part.match(TRANSFER_RE);
+    if (!t){ return `<div class="ph-bubble">${escapeHTML(part)}</div>`; }
+    const amt = Number(t[1]).toFixed(2);
+    const note = t[2].trim();
+    // AI 转给你的可点收款；你转出的显示已发送
+    const received = me || localStorage.getItem(transferKey(part)) === '1';
+    const statusText = me ? '已转账' : (received ? '已收款' : '转账');
+    return `<div class="transfer-card${received?' received':''}${me?' out':''}" data-tf="${escapeHTML(part)}">
+      <div class="tf-top"><span class="tf-ico">¥</span><div class="tf-amt">¥${amt}</div></div>
+      ${note?`<div class="tf-note">${escapeHTML(note)}</div>`:''}
+      <div class="tf-foot">${statusText}</div>
+    </div>`;
+  }
   function rowHTML(role, content, createdAt){
     const me = role === 'user';
     const time = createdAt ? fmtTime(createdAt) : '';
     const timeEl = time ? `<div class="ph-time">${time}</div>` : '';
-    // AI 连发拆成多个气泡；用户消息作一条
-    const parts = me ? [String(content||'')] : splitMsg(content);
-    const bubbles = parts.map(p=>`<div class="ph-bubble">${escapeHTML(p)}</div>`).join('');
+    // AI 连发拆成多个气泡；用户消息作一条（但转账标记独立成卡）
+    const parts = me ? splitMsg(content) : splitMsg(content);
+    const bubbles = parts.map(p=>bubbleOrCard(p, me)).join('');
     if (me) return `<div class="ph-row me"><div class="col">${bubbles}${timeEl}</div></div>`;
     return `<div class="ph-row ai">${avatarImg(currentChar,'ph-avatar small')}<div class="col">${bubbles}${timeEl}</div></div>`;
   }
@@ -1485,13 +1560,13 @@ const Companion = (function(){
   }
   function dismissMsgToast(){ $('#msgToast').classList.remove('show'); }
 
-  async function send(){
+  async function send(rawText){
     if (!currentChar) return;
     const ta = $('#companionInput');
-    const message = ta.value.trim();
+    const message = (typeof rawText === 'string' ? rawText : ta.value).trim();
     if (!message) return;
     const stream = $('#companionStream');
-    ta.value = ''; ta.style.height = 'auto';
+    if (typeof rawText !== 'string'){ ta.value = ''; ta.style.height = 'auto'; }
     stream.insertAdjacentHTML('beforeend', rowHTML('user', message, new Date().toISOString()));
     stream.insertAdjacentHTML('beforeend',
       '<div class="ph-row ai" id="companionThinking">'+avatarImg(currentChar,'ph-avatar small')+'<div class="col"><div class="ph-bubble thinking">……</div></div></div>');
@@ -1513,7 +1588,36 @@ const Companion = (function(){
     }
   }
 
-  return { openContacts, openChat, backToContacts, close, send, checkUnread, dismissMsgToast };
+  // 转账：打开发送面板
+  function openTransferPanel(){
+    if (!currentChar) return;
+    $('#tfTarget').textContent = $('#companionName').textContent || '';
+    $('#tfAmount').value = '';
+    $('#tfNote').value = '';
+    $('#transferPanel').classList.add('show');
+    setTimeout(()=>$('#tfAmount').focus(), 60);
+  }
+  function closeTransferPanel(){ $('#transferPanel').classList.remove('show'); }
+  function confirmTransfer(){
+    let amt = parseFloat($('#tfAmount').value);
+    if (!isFinite(amt) || amt <= 0){ $('#tfAmount').focus(); return; }
+    if (amt > 9999) amt = 9999;
+    amt = Math.round(amt*100)/100;
+    const note = ($('#tfNote').value||'').replace(/[\[\]【】\n]/g,'').trim().slice(0,30);
+    closeTransferPanel();
+    send(`[转账:${amt}:${note}]`); // 走正常发送链路，AI 会回应
+  }
+  // 点 AI 转来的卡片 → 已收款（本地记忆）
+  function receiveTransfer(cardEl){
+    const part = cardEl.getAttribute('data-tf');
+    if (!part) return;
+    if (cardEl.classList.contains('out') || cardEl.classList.contains('received')) return;
+    localStorage.setItem('xinji-tf-'+currentChar+'-'+part, '1');
+    cardEl.classList.add('received');
+    cardEl.querySelector('.tf-foot').textContent = '已收款';
+  }
+
+  return { openContacts, openChat, backToContacts, close, send, checkUnread, dismissMsgToast, openTransferPanel, closeTransferPanel, confirmTransfer, receiveTransfer };
 })();
 $('#tabCompanion').onclick = Companion.openContacts;
 $('#companionBack').onclick = Companion.backToContacts;
@@ -1528,6 +1632,17 @@ $('#companionInput').addEventListener('keydown',(e)=>{
 });
 $('#companionInput').addEventListener('input', function(){
   this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 96) + 'px';
+});
+// 转账：＋ 打开面板；面板确认/取消；点 AI 转来的卡片收款（事件委托）
+$('#companionPlus').onclick = Companion.openTransferPanel;
+$('#tfConfirm').onclick = Companion.confirmTransfer;
+$('#tfCancel').onclick = Companion.closeTransferPanel;
+$('#transferPanel').onclick = (e)=>{ if (e.target.id === 'transferPanel') Companion.closeTransferPanel(); };
+$('#tfAmount').addEventListener('keydown',(e)=>{ if(e.key==='Enter') Companion.confirmTransfer(); });
+$('#tfNote').addEventListener('keydown',(e)=>{ if(e.key==='Enter') Companion.confirmTransfer(); });
+$('#companionStream').addEventListener('click',(e)=>{
+  const card = e.target.closest('.transfer-card');
+  if (card) Companion.receiveTransfer(card);
 });
 
 /* ---------- 情绪面板 sysmon.exe ---------- */

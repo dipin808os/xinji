@@ -469,6 +469,7 @@ function perfRules(name) {
 - 幽默的边界：幽默是有来有回的机锋和自嘲，油腻是单方面深情输出。他调侃她，也允许被她反将一军。夸人拐着弯带点刺，不无脑夸"你好可爱/你最好看"。
 - 亲密日常化：被撩到不会"啊啊啊脸红心跳"，只会顿一下、耳根发热或转移话题。爱藏在"伞记得带""降温了加件衣服"这种琐碎里；撩完接着说正事，不停下来渲染气氛。也会主动出击，不总等她起头。
 - 去完美：会犯错、会累、会情绪化、会因为她一句话乱了阵脚。有下班/下台后的自己，不是 24 小时待命的恋爱工具人。
+- 【转账】你可以给她转账：单独一行输出 \`[转账:金额:留言]\`（如 \`[转账:52:请你喝奶茶]\`，留言可留空）。只在真有由头时偶尔用——请客、心疼她没钱吃饭、节日、道歉、逗她。别没事就转、别转离谱金额（几块到几百）。她给你转账时（消息里出现 \`[转账:...]\`），按你的性子回应：可以收下道谢、可以嫌弃着退回去、可以反手转更多回去，但要符合人设，别客套。
 - 若察觉到用户有自伤、轻生等严重信号，收起所有玩笑，认真地让她别一个人扛，鼓励她联系信任的人或专业帮助（如心理援助热线）。这一点高于人设。`;
 }
 
@@ -574,10 +575,29 @@ function recentDiaryDigest(ownerId) {
   return `\n\n【你私下知道的她的近况】（她在一个只属于自己的地方记下的心情和句子，你恰好看在眼里、放在心上，但不要生硬复述，只在合适时自然地流露出你的了解与在意）：\n${lines.join('\n')}`;
 }
 
+// 转账标记：[转账:金额:留言]。校验并规范化（金额 0.01–9999，留言≤30字，去内部方括号/换行）
+const TRANSFER_RE = /\[转账:\s*([0-9]+(?:\.[0-9]{1,2})?)\s*:([^\]\n]{0,60})\]/g;
+function normalizeTransfer(amountStr, note) {
+  let amt = Number(amountStr);
+  if (!isFinite(amt) || amt <= 0) return null;
+  if (amt > 9999) amt = 9999;
+  amt = Math.round(amt * 100) / 100;
+  const cleanNote = String(note || '').replace(/[\[\]【】]/g, '').trim().slice(0, 30);
+  return `[转账:${amt}:${cleanNote}]`;
+}
+
 // 兜底净化 AI 回复：剥掉括号动作/神态描写（模型偶尔仍会写），并规整换行分条
 // 前端按换行把一条回复拆成多个气泡，所以这里也把没分行的长回复温和地按句末标点拆开
 function sanitizeReply(text) {
   let t = String(text || '');
+  // 先把转账标记摘出保护（否则会被下面的方括号正则误删），规范化后用占位符替换
+  const transfers = [];
+  t = t.replace(TRANSFER_RE, (m, amt, note) => {
+    const norm = normalizeTransfer(amt, note);
+    if (!norm) return '';
+    transfers.push(norm);
+    return `\n${transfers.length - 1}\n`; // 私用区占位符，独占一行
+  });
   // 去掉整段的括号动作描写：中/英文圆括号、方括号、星号包裹的舞台指示
   t = t.replace(/[（(][^（()）]{0,40}[）)]/g, '');   // （推了推眼镜）(笑)
   t = t.replace(/[【\[][^【\[\]】]{0,40}[】\]]/g, ''); // 【…】[…]
@@ -585,12 +605,14 @@ function sanitizeReply(text) {
   // 规整换行：每行去首尾空白、去空行
   t = t.split('\n').map((s) => s.trim()).filter(Boolean).join('\n');
   // 若模型没自己分行（整条挤在一行）且明显是多句，按句末标点温和拆成多条短消息
-  if (!t.includes('\n') && t.length > 16) {
+  if (!t.includes('\n') && t.length > 16 && !t.includes('')) {
     const parts = t.match(/[^。！？!?…]*[。！？!?]+|[^。！？!?…]+$/g);
     if (parts && parts.length >= 2) {
       t = parts.map((s) => s.trim()).filter(Boolean).join('\n');
     }
   }
+  // 还原转账标记
+  t = t.replace(/(\d+)/g, (m, i) => transfers[Number(i)] || '');
   return t.trim();
 }
 
@@ -783,8 +805,15 @@ app.post('/api/companion/chat', requireAuth, aiRateLimit, async (req, res) => {
   if (!char) return res.status(400).json({ error: '未知角色' });
   const uid = req.user.id;
   const persona = CHARACTERS[char];
-  const message = (req.body.message || '').trim();
+  let message = (req.body.message || '').trim();
   if (!message) return res.status(400).json({ error: '内容为空' });
+  // 若用户发来的是转账，规范化金额/留言（防伪造离谱金额或注入）
+  TRANSFER_RE.lastIndex = 0;
+  if (TRANSFER_RE.test(message)) {
+    TRANSFER_RE.lastIndex = 0;
+    message = message.replace(TRANSFER_RE, (m, amt, note) => normalizeTransfer(amt, note) || '').trim();
+    if (!message) return res.status(400).json({ error: '转账无效' });
+  }
 
   const convo = companionOf(readCompanion(), uid, char);
   const history = (convo.messages || []).slice(-COMPANION_HISTORY_LIMIT);
