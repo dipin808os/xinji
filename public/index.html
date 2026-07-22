@@ -1807,7 +1807,7 @@ const Moments = (function(){
     qinxu: { src:'qinxu.jpg', fallback:'叙' },
   };
   function avatar(char, mine){
-    if (mine) return `<span class="mc-avatar">我</span>`;
+    if (mine) return `<span class="mc-avatar"><img src="user.jpg" alt="" onerror="this.style.display='none';this.parentNode.textContent='我'"></span>`;
     const a = AV[char] || { src:'', fallback:'?' };
     return `<span class="mc-avatar"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'"></span>`;
   }
