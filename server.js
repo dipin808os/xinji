@@ -703,6 +703,13 @@ function sanitizeReply(text, opts) {
   t = t.replace(/[（(][^（()）]{0,40}[）)]/g, '');   // （推了推眼镜）(笑)
   t = t.replace(/[【\[][^【\[\]】]{0,40}[】\]]/g, ''); // 【…】[…]
   t = t.replace(/\*[^*\n]{0,40}\*/g, '');             // *动作*
+  // 剥掉包裹整条回复的成对引号：模型偶尔把回复当成一句台词整个引述（"嗯，等我下班。"/「知道了」）
+  t = t.trim();
+  const Q_OPEN = '"\'“‘「『';
+  const Q_CLOSE = '"\'”’」』';
+  while (t.length >= 2 && Q_OPEN.includes(t[0]) && Q_CLOSE.includes(t[t.length - 1])) {
+    t = t.slice(1, -1).trim();
+  }
   // 规整换行：每行去首尾空白、去空行
   t = t.split('\n').map((s) => s.trim()).filter(Boolean).join('\n');
   // 若模型没自己分行（整条挤在一行）且明显是多句，按句末标点温和拆成多条短消息
@@ -1100,15 +1107,32 @@ app.post('/api/moments/:id/comment', requireAuth, aiRateLimit, async (req, res) 
   const bucket = readMoments()[uid] || { posts: [] };
   const post = (bucket.posts || []).find((x) => x.id === req.params.id);
   if (!post) return res.status(404).json({ error: '动态不存在' });
-  const persona = CHARACTERS[post.char];
 
-  // 生成男主对这条评论的回复
+  // 谁来回复：男主自己的动态 → 该男主；我自己的动态 → 评论区里最近开口的那个男主（延续对话）
+  const existing = Array.isArray(post.comments) ? post.comments : [];
+  let responder = post.char;
+  if (!responder) {
+    for (let i = existing.length - 1; i >= 0; i--) {
+      if (existing[i].by !== 'user') { responder = existing[i].by; break; }
+    }
+  }
+  const persona = CHARACTERS[responder];
+
+  // 生成男主对这条评论的回复：带上评论区里和「他」的完整来回，接得住上下文
   let reply;
   if (API_KEY && persona) {
     try {
-      const sys = persona.prompt;
-      const input = `这是你发的一条朋友圈动态：「${post.text}」\n她在下面评论了你：「${text}」\n用你的性子回复她这条评论，一两句短话，符合人设。`;
-      reply = sanitizeReply(await callClaude(sys, input));
+      const context = post.char
+        ? `这是你发的一条朋友圈动态：「${post.text}」\n她在下面评论区和你聊天。用你的性子回复，一两句短话，符合人设，别客套。`
+        : `她发了一条朋友圈：「${post.text}」\n你在下面的评论区回复她、和她聊了起来。用你的性子回复，一两句短话，符合人设，别客套。`;
+      // 只取「我」和「当前这个男主」的往返，其他男主的评论不混进上下文
+      const thread = existing.filter((c) => c.by === 'user' || c.by === responder);
+      const built = [
+        { role: 'user', content: context },
+        ...thread.map((c) => ({ role: c.by === 'user' ? 'user' : 'assistant', content: c.text })),
+        { role: 'user', content: text },
+      ];
+      reply = sanitizeReply(await callClaude(persona.prompt, built));
     } catch { reply = ''; }
   }
   if (!reply && persona) reply = persona.mockChat(false).split('\n')[0];
@@ -1120,7 +1144,7 @@ app.post('/api/moments/:id/comment', requireAuth, aiRateLimit, async (req, res) 
     if (!p) return null;
     if (!Array.isArray(p.comments)) p.comments = [];
     p.comments.push({ id: momentId(), by: 'user', name: '我', text, createdAt: now });
-    if (reply) p.comments.push({ id: momentId(), by: p.char, name: persona ? persona.name : p.char, text: reply, createdAt: now });
+    if (reply) p.comments.push({ id: momentId(), by: responder, name: persona ? persona.name : responder, text: reply, createdAt: now });
     return p.comments;
   });
   if (!saved) return res.status(404).json({ error: '动态不存在' });
