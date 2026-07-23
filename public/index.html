@@ -597,6 +597,20 @@
   #postText::placeholder { color:var(--ink-faint); }
   .post-btns { display:flex; gap:10px; }
   .post-btns .btn { flex:1; }
+  /* 召唤面板：复用 postPanel 布局 */
+  #summonPanel { position:absolute; inset:0; z-index:6; display:none; align-items:center; justify-content:center;
+    padding:22px; background:rgba(80,30,55,.5); }
+  #summonPanel.show { display:flex; }
+  #summonList { display:flex; flex-direction:column; gap:9px; margin-bottom:14px; }
+  .summon-opt { display:flex; align-items:center; gap:11px; padding:9px 11px; border-radius:13px; cursor:pointer;
+    background:var(--win-face-2); border:1px solid transparent; transition:border-color .15s, background .15s; }
+  .summon-opt:hover { border-color:var(--accent); }
+  .summon-opt.busy { opacity:.55; pointer-events:none; }
+  .summon-opt .so-av { width:38px; height:38px; border-radius:50%; overflow:hidden; flex:none;
+    display:flex; align-items:center; justify-content:center; background:var(--dialog); font-size:14px; color:var(--ink-soft); }
+  .summon-opt .so-av img { width:100%; height:100%; object-fit:cover; }
+  .summon-opt .so-tx .nm { font-size:14px; font-weight:700; color:var(--ink); }
+  .summon-opt .so-tx .tg { font-size:12px; color:var(--ink-faint); }
   /* 通讯录标题 */
   .ph-title { padding:14px 22px 10px; display:flex; align-items:center; justify-content:space-between; }
   .ph-close { width:38px; height:38px; flex:0 0 auto; border-radius:50%; border:none; cursor:pointer;
@@ -1038,6 +1052,7 @@
           <div class="nm" id="companionName">沈砚辞</div>
           <div class="sub">ACTIVE RECORD</div>
         </div>
+        <button class="ph-set" id="companionSummon" title="让他发条朋友圈">❀</button>
         <button class="ph-set" id="companionSet" title="TA 是谁">⚙</button>
       </div>
       <div id="companionStream"></div>
@@ -1090,6 +1105,7 @@
         <span class="ph-title-sub">MOMENTS</span>
       </div>
       <div style="display:flex;gap:8px">
+        <button class="ph-close" id="momentsSummon" title="喊谁发动态">❀</button>
         <button class="ph-close" id="momentsPost" title="发动态">✎</button>
         <button class="ph-close" id="momentsClose" title="关闭">✕</button>
       </div>
@@ -1104,6 +1120,17 @@
         <div class="post-btns">
           <button class="btn" id="postCancel">取消</button>
           <button class="btn primary" id="postConfirm">发布</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 召唤面板：喊哪个男主发一条动态 -->
+    <div id="summonPanel">
+      <div class="post-card">
+        <div class="post-title">喊谁发条动态</div>
+        <div id="summonList"></div>
+        <div class="post-btns">
+          <button class="btn" id="summonCancel">取消</button>
         </div>
       </div>
     </div>
@@ -1770,6 +1797,28 @@ const Companion = (function(){
     cardEl.querySelector('.tf-foot').textContent = '已收款';
   }
 
+  // 点聊天页右上 ❀ → 让当前这个男主立刻发一条朋友圈，然后跳到动态页看
+  async function summonFromChat(){
+    if (!currentChar) return;
+    const btn = $('#companionSummon');
+    if (btn.disabled) return;
+    btn.textContent = '…'; btn.disabled = true;
+    try {
+      await api('/api/moments/summon', {
+        method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ char: currentChar }),
+      });
+      btn.textContent = '❀';
+      close();                          // 关手机
+      if (window.Moments) Moments.open(); // 跳动态页，会拉到刚发的新帖
+    } catch {
+      btn.textContent = '×';
+      setTimeout(()=>{ btn.textContent = '❀'; }, 1200);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // 点聊天页右上 ⚙ → 展示这个角色的人设资料
   function openProfile(){
     if (!currentChar) return;
@@ -1787,12 +1836,13 @@ const Companion = (function(){
   }
   function closeProfile(){ $('#profilePanel').classList.remove('show'); }
 
-  return { openContacts, openChat, backToContacts, close, send, checkUnread, dismissMsgToast, careToast, openTransferPanel, closeTransferPanel, confirmTransfer, receiveTransfer, openProfile, closeProfile };
+  return { openContacts, openChat, backToContacts, close, send, checkUnread, dismissMsgToast, careToast, summonFromChat, openTransferPanel, closeTransferPanel, confirmTransfer, receiveTransfer, openProfile, closeProfile };
 })();
 $('#tabCompanion').onclick = Companion.openContacts;
 $('#companionBack').onclick = Companion.backToContacts;
 $('#contactsClose').onclick = Companion.close;
 $('#companionSend').onclick = Companion.send;
+$('#companionSummon').onclick = Companion.summonFromChat;
 $('#companionModal').onclick = (e)=>{ if (e.target.id === 'companionModal') Companion.close(); };
 // 新消息通知气泡：点气泡进通讯录，点✕关闭
 $('#msgToastBody').onclick = ()=>{ Companion.dismissMsgToast(); Companion.openContacts(); };
@@ -1822,9 +1872,9 @@ $('#profilePanel').onclick = (e)=>{ if (e.target.id === 'profilePanel') Companio
 /* ---------- 男主朋友圈 · 动态 ---------- */
 const Moments = (function(){
   const AV = {
-    shenyance: { src:'companion.jpg', fallback:'砚' },
-    jiangxiyu: { src:'jiangxiyu.jpg', fallback:'溪' },
-    qinxu: { src:'qinxu.jpg', fallback:'叙' },
+    shenyance: { src:'companion.jpg', fallback:'砚', name:'沈砚辞', tag:'清冷占有欲 · 数学讲师' },
+    jiangxiyu: { src:'jiangxiyu.jpg', fallback:'溪', name:'江溪屿', tag:'松弛可靠 · 青梅竹马' },
+    qinxu: { src:'qinxu.jpg', fallback:'叙', name:'秦叙', tag:'温润心理医生 · 大学故人' },
   };
   function avatar(char, mine){
     if (mine) return `<span class="mc-avatar"><img src="user.jpg" alt="" onerror="this.style.display='none';this.parentNode.textContent='我'"></span>`;
@@ -1850,7 +1900,7 @@ const Moments = (function(){
   function cardHTML(p){
     const mine = p.author === 'user';
     const cmts = (p.comments||[]).map(cmtHTML).join('');
-    const likesLine = (mine && p.likedByChars && p.likedByChars.length)
+    const likesLine = (p.likedByChars && p.likedByChars.length)
       ? `<div class="mc-likes">♥ <b>${p.likedByChars.map(escapeHTML).join('、')}</b> 赞了</div>` : '';
     return `<div class="moment-card${mine?' mine':''}" data-id="${p.id}">
       <div class="mc-head">${avatar(p.char, mine)}<span class="mc-name">${escapeHTML(p.name)}</span></div>
@@ -1932,11 +1982,45 @@ const Moments = (function(){
       if (tmp) tmp.querySelector('.mc-comments').innerHTML = '<div class="mc-cmt">没发出去，再试一次</div>';
     }
   }
-  return { open, close, like, submitComment, openPost, closePost, submitPost };
+  // 召唤：喊某个男主立刻发一条动态
+  function openSummon(){
+    const list = $('#summonList');
+    list.innerHTML = Object.keys(AV).map(id=>{
+      const a = AV[id];
+      return `<div class="summon-opt" data-char="${id}">
+        <span class="so-av"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'"></span>
+        <div class="so-tx"><div class="nm">${escapeHTML(a.name)}</div><div class="tg">${escapeHTML(a.tag)}</div></div>
+      </div>`;
+    }).join('');
+    $('#summonPanel').classList.add('show');
+  }
+  function closeSummon(){ $('#summonPanel').classList.remove('show'); }
+  async function doSummon(opt){
+    const id = opt.dataset.char; if (!id) return;
+    if (opt.classList.contains('busy')) return;
+    opt.classList.add('busy');
+    opt.querySelector('.tg').textContent = '召唤中…';
+    try {
+      const { posts } = await api('/api/moments/summon', {
+        method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ char: id }),
+      });
+      closeSummon();
+      render(posts||[]); // 用服务端结果重渲染，新帖在最上
+      $('#momentsList').scrollTop = 0;
+    } catch {
+      opt.classList.remove('busy');
+      opt.querySelector('.tg').textContent = '没喊动，再试一次';
+    }
+  }
+  return { open, close, like, submitComment, openPost, closePost, submitPost, openSummon, closeSummon, doSummon };
 })();
 $('#tabMoments').onclick = Moments.open;
 $('#momentsClose').onclick = Moments.close;
 $('#momentsPost').onclick = Moments.openPost;
+$('#momentsSummon').onclick = Moments.openSummon;
+$('#summonCancel').onclick = Moments.closeSummon;
+$('#summonPanel').onclick = (e)=>{ if (e.target.id === 'summonPanel') Moments.closeSummon(); };
+$('#summonList').addEventListener('click',(e)=>{ const opt=e.target.closest('.summon-opt'); if(opt) Moments.doSummon(opt); });
 $('#postCancel').onclick = Moments.closePost;
 $('#postConfirm').onclick = Moments.submitPost;
 $('#postPanel').onclick = (e)=>{ if (e.target.id === 'postPanel') Moments.closePost(); };
