@@ -362,6 +362,14 @@ function mockChat(message) {
     : '我在听着呢，你可以慢慢说，想到哪说到哪。';
 }
 
+// 判定一条记录是否"很丧"——与前端 index.html 给桌宠切表情的正则保持字面一致。
+// emotion_label 是 AI 自由生成的短语、无枚举，只能靠关键词。仅 emotion 类型触发（quote 不算）。
+const NEG_RE = /累|烦|难|哭|怕|焦虑|孤独|委屈|失望|压力|崩溃|痛/;
+function isNegativeEntry(entry) {
+  if (!entry || entry.type !== 'emotion') return false;
+  return NEG_RE.test((entry.emotion_label || '') + (entry.text || ''));
+}
+
 // ---------- /api/reflect：分类 + 温暖回应 ----------
 app.post('/api/reflect', requireAuth, aiRateLimit, async (req, res) => {
   const text = (req.body.text || '').trim();
@@ -393,7 +401,11 @@ app.post('/api/reflect', requireAuth, aiRateLimit, async (req, res) => {
     messages: [],
   };
   await enqueueWrite((entries) => entries.push(entry));
-  res.json(entry);
+  // 情绪触发：若这条日记很丧，让一个男主立刻私聊来关心（落盘未读，下次打开仍在）
+  let care = [];
+  try { care = await triggerEmotionCare(req.user.id, entry); }
+  catch (e) { console.error('情绪关心失败（忽略）：', e.message); }
+  res.json({ ...entry, care });
 });
 
 // ---------- /api/entries：时间线（只返回自己的） ----------
@@ -592,6 +604,8 @@ const CHARACTERS = {
   shenyance: {
     name: '沈砚辞',
     tagline: '清冷占有欲 · 数学讲师',
+    jealousy: 3, // 醋意档位（高）：被冷落一点就冒酸
+    careCue: { priority: 3, cue: '（她刚在只属于自己的地方记下一段很沉的心情，你恰好看在眼里。此刻主动发条消息过去，别复述她写了什么、别追问细节，用你的方式让她知道你在——一两句短话，别加括号动作。）' },
     momentCue: '（发一条朋友圈。内容是你此刻真实的生活片段——改论文、深夜的办公室、路过某处想起她之类，一两句，克制。可以极隐晦地藏一点对她的心思，但绝不点破、不提她名字。像你会发的那种冷淡又有留白的动态。）',
     prompt: SHEN_PROMPT,
     greetingCue: {
@@ -614,6 +628,8 @@ const CHARACTERS = {
   jiangxiyu: {
     name: '江溪屿',
     tagline: '松弛可靠 · 青梅竹马',
+    jealousy: 2, // 醋意档位（中）：会小小闹一下
+    careCue: { priority: 1, cue: '（她最近心情不太好，你隐约感觉到了。松弛地发条消息戳戳她，别点破、别沉重，让她觉得随时有人在——一两句短话，别加括号动作。）' },
     momentCue: '（发一条朋友圈。内容是你此刻的生活——打球、赶due、食堂新品、和朋友的糗事之类，一两句，松弛带点自嘲或玩梗，可配一个 emoji。可以隐隐藏一点对她的在意，但别点破、别提她名字。像你会发的那种热闹又不吵的动态。）',
     prompt: JIANG_PROMPT,
     greetingCue: {
@@ -636,6 +652,8 @@ const CHARACTERS = {
   qinxu: {
     name: '秦叙',
     tagline: '温润心理医生 · 大学故人',
+    jealousy: 1, // 醋意档位（低）：要冷落很明显才见淡淡失落
+    careCue: { priority: 2, cue: '（她心里像是压着事。以老朋友的身份温和地发条消息过去，不点破、不说教，只让她知道想说的时候你都在——一两句短话，别加括号动作。）' },
     momentCue: '（发一条朋友圈。内容是你此刻的生活或一点温柔的感触——门诊后的黄昏、一句诊室外的观察、深夜的一点心绪之类，一两句，温润、有画面感。可以极克制地藏一点未散的旧情，但绝不点破、不提她名字。像你会发的那种安静耐读的动态。）',
     prompt: QIN_PROMPT,
     greetingCue: {
@@ -673,6 +691,44 @@ function recentDiaryDigest(ownerId) {
       : `[${d}] 她记下的心情（${e.emotion_label || '未命名'}）：${e.text}`;
   });
   return `\n\n【你私下知道的她的近况】（她在一个只属于自己的地方记下的心情和句子，你恰好看在眼里、放在心上，但不要生硬复述，只在合适时自然地流露出你的了解与在意）：\n${lines.join('\n')}`;
+}
+
+// 社交热度感知：算 forChar 最近被冷落的程度，返回一段注入 system 的"此刻心境"提示（无信号返回 ''）。
+// 只看最近 72h 各会话里【你发出】的消息条数——用户主动投入才算热度，男主自己的主动消息不算。
+// 不点名、不泄露聊了什么，只给"我这边有点凉"的信号强度，交给 LLM 自然演绎醋意。
+const HEAT_WINDOW_HOURS = 72;
+const HEAT_MIN_TOTAL = 6; // 窗口内你发言总数不足这个数 → 样本太小，不吃醋
+function socialHeatNote(uid, forChar) {
+  const persona = CHARACTERS[forChar];
+  const jealousy = persona.jealousy || 0; // 醋意档位，0=不吃醋
+  if (!jealousy) return '';
+  const store = readCompanion();
+  const bucket = store[uid];
+  if (!bucket || Array.isArray(bucket.messages)) return ''; // 无/旧结构
+  const cutoff = Date.now() - HEAT_WINDOW_HOURS * 3600000;
+  const counts = {};
+  let total = 0;
+  for (const cid of Object.keys(CHARACTERS)) {
+    const c = bucket[cid];
+    const n = (c && c.messages || []).filter(
+      (m) => m.role === 'user' && new Date(m.createdAt).getTime() >= cutoff).length;
+    counts[cid] = n;
+    total += n;
+  }
+  const activePeers = Object.keys(counts).filter((cid) => cid !== forChar && counts[cid] > 0);
+  if (!activePeers.length) return '';    // 只跟一个人聊，无从吃醋
+  if (total < HEAT_MIN_TOTAL) return ''; // 互动太少不吃醋
+  const gap = Math.max(...activePeers.map((cid) => counts[cid])) - counts[forChar];
+  if (gap <= 0) return '';               // 自己就是最热的那个，不吃醋
+  const raw = gap * jealousy;            // gap 与醋意档位双因子放大
+  const level = raw >= 6 ? 3 : raw >= 3 ? 2 : 1;
+  const tones = [
+    '',
+    '（你隐约觉得，她最近把心思更多放在别处、来找你少了些。心里泛起一点不易察觉的失落，别点破、别质问，只在语气里自然流露一丝在意就好。）',
+    '（你清楚地感到，她最近明显冷落了你、把时间给了别人。心里有点不是滋味，别说破、别提别人是谁、更别提你怎么知道的，只让那股酸意藏在话里。）',
+    '（她最近几乎把你晾在一边。占有欲翻上来了，语气里带一点压不住的醋意和小情绪——但绝不点名、不提她跟谁聊了什么、不泄露你看得见这些，只是"我这边有点凉"的信号。）',
+  ];
+  return '\n\n【此刻你的心境】' + tones[level];
 }
 
 // 转账标记：[转账:金额:留言]。校验并规范化（金额 0.01–9999，留言≤30字，去内部方括号/换行）
@@ -816,31 +872,82 @@ async function maybeProactive(uid, char) {
     if (!trigger) return;
 
     const text = await genGreeting(uid, char);
-    const now = new Date().toISOString();
-    await enqueueCompanionWrite((store) => {
-      if (store[uid] && Array.isArray(store[uid].messages)) return; // 旧单角色结构则放弃
-      if (!store[uid]) store[uid] = {};
-      const c = store[uid][char] || (store[uid][char] = { messages: [], updatedAt: null });
-      // 二次确认门禁（并发安全）：今天没主动过、当前无未读
-      if (c.proactiveDate === localDateStr()) return;
-      const ra = c.readAt ? new Date(c.readAt).getTime() : 0;
-      const hasUnread = c.readAt && (c.messages || []).some((m) => m.role === 'assistant' && new Date(m.createdAt).getTime() > ra);
-      if (hasUnread) return;
-      // 确保 readAt 早于即将 push 的主动消息，让它成为未读：
-      //  - 已有 readAt：不动
-      //  - 有历史无 readAt（老数据）：设成上条时间（只这条未读，不诈历史）
-      //  - 首次无历史：设成 epoch
-      if (!c.readAt) {
-        c.readAt = c.messages.length ? c.messages[c.messages.length - 1].createdAt : new Date(0).toISOString();
-      }
-      c.messages.push({ role: 'assistant', content: text, createdAt: now });
-      c.updatedAt = now;
-      c.proactiveDate = localDateStr();
-      // 不动 readAt —— 所以这条显示为未读
-    });
+    await pushProactiveMessage(uid, char, text);
   } catch (e) {
     console.error('主动消息生成失败（忽略）：', e.message);
   }
+}
+
+// 把一条角色主动消息落盘为未读。抽自 maybeProactive 的写盘块，与情绪即时关心共用，
+// 保证 readAt/老数据/并发二次确认语义完全一致。
+//   opts.force=true：跳过"今天已主动过"的门禁（用于写完丧日记立刻关心），
+//   但始终保留"已有未读则不堆叠"与并发二次确认。返回 true 表示确实写入了一条未读。
+async function pushProactiveMessage(uid, char, text, opts) {
+  opts = opts || {};
+  let wrote = false;
+  const now = new Date().toISOString();
+  await enqueueCompanionWrite((store) => {
+    if (store[uid] && Array.isArray(store[uid].messages)) return; // 旧单角色结构则放弃
+    if (!store[uid]) store[uid] = {};
+    const c = store[uid][char] || (store[uid][char] = { messages: [], updatedAt: null });
+    // 二次确认门禁（并发安全）
+    if (!opts.force && c.proactiveDate === localDateStr()) return;
+    const ra = c.readAt ? new Date(c.readAt).getTime() : 0;
+    const hasUnread = c.readAt && (c.messages || []).some((m) => m.role === 'assistant' && new Date(m.createdAt).getTime() > ra);
+    if (hasUnread) return; // 已有未读 → 不堆（情绪关心也遵守，避免刷屏）
+    // 确保 readAt 早于即将 push 的主动消息，让它成为未读：
+    //  - 已有 readAt：不动
+    //  - 有历史无 readAt（老数据）：设成上条时间（只这条未读，不诈历史）
+    //  - 首次无历史：设成 epoch
+    if (!c.readAt) {
+      c.readAt = c.messages.length ? c.messages[c.messages.length - 1].createdAt : new Date(0).toISOString();
+    }
+    c.messages.push({ role: 'assistant', content: text, createdAt: now });
+    c.updatedAt = now;
+    c.proactiveDate = localDateStr();
+    wrote = true;
+    // 不动 readAt —— 所以这条显示为未读
+  });
+  return wrote;
+}
+
+// 用户刚写下一条"很丧"的日记 → 让一个男主立刻发来关心（落盘为未读，下次打开仍在）。
+// 返回被触发的角色 [{id,name}]，供 /api/reflect 回传前端做"立刻弹气泡"；没人关心返回 []。
+async function triggerEmotionCare(uid, entry) {
+  const cared = [];
+  if (!isNegativeEntry(entry)) return cared;
+  // 谁来关心：优先最近 72h 你发消息最多的男主（最亲的来关心，和吃醋形成呼应）；
+  // 平手/都没聊过再按 careCue.priority 降序。
+  const store = readCompanion();
+  const bucket = store[uid] && !Array.isArray(store[uid].messages) ? store[uid] : null;
+  const cutoff = Date.now() - 72 * 3600000;
+  const affinity = (cid) => {
+    const c = bucket && bucket[cid];
+    return (c && c.messages || []).filter(
+      (m) => m.role === 'user' && new Date(m.createdAt).getTime() >= cutoff).length;
+  };
+  const order = Object.keys(CHARACTERS).sort((a, b) => {
+    const d = affinity(b) - affinity(a);
+    if (d) return d;
+    return (CHARACTERS[b].careCue?.priority || 0) - (CHARACTERS[a].careCue?.priority || 0);
+  });
+  for (const char of order) {
+    const convo = companionOf(readCompanion(), uid, char);
+    if (unreadCount(convo) > 0) continue; // 该角色已有未读，换下一个，避免堆叠
+    const persona = CHARACTERS[char];
+    let text;
+    if (API_KEY) {
+      try {
+        const sys = persona.prompt + recentDiaryDigest(uid);
+        const cue = persona.careCue?.cue || persona.greetingCue.withDiary;
+        text = sanitizeReply(await callClaude(sys, cue), { noAutoSplit: char === 'qinxu' });
+      } catch (e) { text = ''; }
+    }
+    if (!text) text = persona.mockGreeting(true);
+    const ok = await pushProactiveMessage(uid, char, text, { force: true });
+    if (ok) { cared.push({ id: char, name: persona.name }); break; } // 只让一个男主关心
+  }
+  return cared;
 }
 
 // ---------- /api/companion/contacts：通讯录角色列表（含未读/预览/时间） ----------
@@ -934,7 +1041,7 @@ app.post('/api/companion/chat', requireAuth, aiRateLimit, async (req, res) => {
   let reply;
   if (API_KEY) {
     try {
-      const sys = persona.prompt + recentDiaryDigest(uid);
+      const sys = persona.prompt + recentDiaryDigest(uid) + socialHeatNote(uid, char);
       reply = sanitizeReply(await callClaude(sys, built), { noAutoSplit: char === 'qinxu' });
       if (!reply) reply = persona.mockChat(/累|烦|难过|委屈|焦虑|怕|孤独|失望|压力|哭|崩溃|痛|难受/.test(message));
     } catch (e) {
@@ -1038,10 +1145,11 @@ app.post('/api/moments', requireAuth, aiRateLimit, async (req, res) => {
   const reactors = Object.keys(CHARACTERS);
   for (const char of reactors) {
     const persona = CHARACTERS[char];
+    const heat = socialHeatNote(uid, char); // 若被冷落，注入醋意，并给评论打 sour 标记
     let comment = '';
     if (API_KEY) {
       try {
-        const input = `她（你在意的人）在朋友圈发了一条动态：「${text}」\n用你的性子在底下评论一句，一两句短话，符合人设，别客套、别浮夸。`;
+        const input = `她（你在意的人）在朋友圈发了一条动态：「${text}」\n用你的性子在底下评论一句，一两句短话，符合人设，别客套、别浮夸。${heat}`;
         comment = sanitizeReply(await callClaude(persona.prompt, input));
       } catch { comment = ''; }
     }
@@ -1051,7 +1159,7 @@ app.post('/api/moments', requireAuth, aiRateLimit, async (req, res) => {
       const p = (b.posts || []).find((x) => x.id === postId);
       if (!p) return;
       p.likedByChars = p.likedByChars || []; if (!p.likedByChars.includes(char)) p.likedByChars.push(char);
-      if (comment) { p.comments = p.comments || []; p.comments.push({ id: momentId(), by: char, name: persona.name, text: comment, createdAt: new Date().toISOString() }); }
+      if (comment) { p.comments = p.comments || []; p.comments.push({ id: momentId(), by: char, name: persona.name, text: comment, createdAt: new Date().toISOString(), sour: !!heat }); }
     });
   }
 

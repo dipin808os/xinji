@@ -566,6 +566,8 @@
   .mc-cmt { font-size:13px; line-height:1.55; }
   .mc-cmt .who { font-weight:700; color:var(--accent); }
   .mc-cmt.me .who { color:var(--ink-soft); }
+  /* 吃醋评论：淡黄底 + 左侧竖条，克制地标出酸味，不喧宾夺主 */
+  .mc-cmt.sour { background:rgba(255,209,102,.14); border-left:2px solid #ffd166; border-radius:0 6px 6px 0; padding:3px 8px; margin-left:-2px; }
   .mc-cmt-input { display:none; margin-top:9px; gap:7px; }
   .mc-cmt-input.show { display:flex; }
   .mc-cmt-input input { flex:1; border:none; outline:none; background:var(--win-face-2); border-radius:16px;
@@ -1393,6 +1395,8 @@ async function submit(){
     $('#replyHost').querySelectorAll('.replyClose').forEach(b => b.onclick = resetReply);
     $('#replyChatBtn').onclick = () => openChat(entry);
     loadTimeline();
+    // 若这条日记很丧，后端已让一个男主发来关心（落盘未读），这里立刻弹个气泡
+    if (window.Companion && entry.care && entry.care.length) Companion.careToast(entry.care);
   } catch (e) {
     $('#replyHost').innerHTML = `<div class="win reply-win"><div class="titlebar"><span class="tico">⚠</span><span class="ttext">error.sys</span><span class="ctrls"><b class="replyClose">✕</b></span></div><div class="body descbox field">网络好像走神了，再试一次好吗？</div></div>`;
     $('#replyHost').querySelectorAll('.replyClose').forEach(b => b.onclick = resetReply);
@@ -1693,6 +1697,19 @@ const Companion = (function(){
   }
   function dismissMsgToast(){ $('#msgToast').classList.remove('show'); }
 
+  // 情绪关心即时弹泡：写完一条很丧的日记后，某个男主立刻发来关心。
+  // 复用 #msgToast 的 DOM，但绕过每日节流（这是即时反馈，区别于登录时的合并通知）。
+  function careToast(care){
+    if (!care || !care.length) return;
+    const c = care[0]; const a = AV[c.id] || { src:'', fallback:'?' };
+    $('#msgToastBody').innerHTML = `<div class="msg-toast-row">
+      <span class="msg-toast-av"><img src="${a.src}" alt="" onerror="this.style.display='none';this.parentNode.textContent='${a.fallback}'"></span>
+      <div class="msg-toast-tx"><div class="nm">${escapeHTML(c.name)} <b>给你发来消息</b></div><div class="pv">看到你此刻的心情，来找你了</div></div>
+    </div>`;
+    $('#msgToast').classList.add('show');
+    checkUnread(); // 顺便点亮顶栏红点（不带 toast，避免二次弹）
+  }
+
   async function send(rawText){
     if (!currentChar) return;
     const ta = $('#companionInput');
@@ -1767,7 +1784,7 @@ const Companion = (function(){
   }
   function closeProfile(){ $('#profilePanel').classList.remove('show'); }
 
-  return { openContacts, openChat, backToContacts, close, send, checkUnread, dismissMsgToast, openTransferPanel, closeTransferPanel, confirmTransfer, receiveTransfer, openProfile, closeProfile };
+  return { openContacts, openChat, backToContacts, close, send, checkUnread, dismissMsgToast, careToast, openTransferPanel, closeTransferPanel, confirmTransfer, receiveTransfer, openProfile, closeProfile };
 })();
 $('#tabCompanion').onclick = Companion.openContacts;
 $('#companionBack').onclick = Companion.backToContacts;
@@ -1824,7 +1841,7 @@ const Moments = (function(){
   }
   function cmtHTML(c){
     const me = c.by === 'user';
-    return `<div class="mc-cmt${me?' me':''}"><span class="who">${escapeHTML(c.name)}：</span>${escapeHTML(c.text)}</div>`;
+    return `<div class="mc-cmt${me?' me':''}${c.sour?' sour':''}"><span class="who">${escapeHTML(c.name)}：</span>${c.sour?'🍋 ':''}${escapeHTML(c.text)}</div>`;
   }
   function cardHTML(p){
     const mine = p.author === 'user';
