@@ -606,6 +606,8 @@ const CHARACTERS = {
     tagline: '清冷占有欲 · 数学讲师',
     jealousy: 3, // 醋意档位（高）：被冷落一点就冒酸
     careCue: { priority: 3, cue: '（她刚在只属于自己的地方记下一段很沉的心情，你恰好看在眼里。此刻主动发条消息过去，别复述她写了什么、别追问细节，用你的方式让她知道你在——一两句短话，别加括号动作。）' },
+    bond: '她十二年的邻家哥哥',
+    rivalStyle: '冷淡、居高、圈地。不屑争辩，用一句点到为止的凉话划出界限，让对方自己觉得多余；越在意越显得漫不经心。',
     momentCue: '（发一条朋友圈。内容是你此刻真实的生活片段——改论文、深夜的办公室、路过某处想起她之类，一两句，克制。可以极隐晦地藏一点对她的心思，但绝不点破、不提她名字。像你会发的那种冷淡又有留白的动态。）',
     prompt: SHEN_PROMPT,
     greetingCue: {
@@ -630,6 +632,8 @@ const CHARACTERS = {
     tagline: '松弛可靠 · 青梅竹马',
     jealousy: 2, // 醋意档位（中）：会小小闹一下
     careCue: { priority: 1, cue: '（她最近心情不太好，你隐约感觉到了。松弛地发条消息戳戳她，别点破、别沉重，让她觉得随时有人在——一两句短话，别加括号动作。）' },
+    bond: '她从小一起长大、一路同校的青梅竹马',
+    rivalStyle: '笑面藏刺。表面热络接梗、称兄道弟，话里带钩，用玩笑把刺裹起来，让对方笑着噎一下。',
     momentCue: '（发一条朋友圈。内容是你此刻的生活——打球、赶due、食堂新品、和朋友的糗事之类，一两句，松弛带点自嘲或玩梗，可配一个 emoji。可以隐隐藏一点对她的在意，但别点破、别提她名字。像你会发的那种热闹又不吵的动态。）',
     prompt: JIANG_PROMPT,
     greetingCue: {
@@ -654,6 +658,8 @@ const CHARACTERS = {
     tagline: '温润心理医生 · 大学故人',
     jealousy: 1, // 醋意档位（低）：要冷落很明显才见淡淡失落
     careCue: { priority: 2, cue: '（她心里像是压着事。以老朋友的身份温和地发条消息过去，不点破、不说教，只让她知道想说的时候你都在——一两句短话，别加括号动作。）' },
+    bond: '她大学时的旧人',
+    rivalStyle: '温声千斤，最沉得住气。不接招、不动气，一句温和的话四两拨千斤，越平静越有分量，让对方的锋芒落空。',
     momentCue: '（发一条朋友圈。内容是你此刻的生活或一点温柔的感触——门诊后的黄昏、一句诊室外的观察、深夜的一点心绪之类，一两句，温润、有画面感。可以极克制地藏一点未散的旧情，但绝不点破、不提她名字。像你会发的那种安静耐读的动态。）',
     prompt: QIN_PROMPT,
     greetingCue: {
@@ -729,6 +735,33 @@ function socialHeatNote(uid, forChar) {
     '（她最近几乎把你晾在一边。占有欲翻上来了，语气里带一点压不住的醋意和小情绪——但绝不点名、不提她跟谁聊了什么、不泄露你看得见这些，只是"我这边有点凉"的信号。）',
   ];
   return '\n\n【此刻你的心境】' + tones[level];
+}
+
+// 三男主"暗暗较劲的情敌"关系语境：注入 system，只在动态朋友圈公开评论生效。
+// 用各角色 bond 拼出"你们仨因她相识"的关系网 + forChar 自己的较劲风格 + 铁律（不泄私密/不点破/暗劲）。
+//   opts.ownerPost + opts.ownerName：落点A——在某个情敌发的帖子底下，冲他留一句（不是对她说）。
+//   opts.peerComments=[{name,text}]：落点B——你发帖后评论串里，看到前面情敌说了啥，暗暗回敬（仍对她说）。
+function rivalContext(forChar, opts) {
+  opts = opts || {};
+  const me = CHARACTERS[forChar];
+  const roster = Object.keys(CHARACTERS)
+    .filter((id) => id !== forChar)
+    .map((id) => `${CHARACTERS[id].name}（${CHARACTERS[id].bond}）`)
+    .join('、');
+  let scene = '';
+  if (opts.ownerPost) {
+    scene = `\n这条动态是${opts.ownerName || '另一个也在她身边打转的人'}发的：「${opts.ownerPost}」。你在他这条动态底下留一句——不是对她说，是冲他去的：客气的表面下，不着痕迹地别他一下、划一道界。`;
+  } else if (opts.peerComments && opts.peerComments.length) {
+    scene = `\n刚刚在这条评论区下面，${opts.peerComments.map((p) => `${p.name}：「${p.text}」`).join('  ')}\n你看到了他的话——不点破、不接茬似地，用你的方式在自己这句评论里不动声色地压他一头、或把话题拿回到你自己这边。别复述他说了什么，别直接对他喊话。`;
+  }
+  return `\n\n【朋友圈里的微妙气场】（仅在这条公开动态的评论区生效，不影响你和她私下的相处）
+你不是只身一人在她的世界里。还有${roster}——你们因她相识，彼此心知肚明对方也在她身边打转、也在意她。表面维持着体面的客气，私底下各自较着一股劲，谁也不肯先退。
+你较劲的方式：${me.rivalStyle}
+铁律（违背即算脱设、立刻穿帮）：
+· 只凭"感觉到对方也在她身边"来别苗头，绝不流露任何你私下才知道的她的事（她说过的话、她的心情、她的过往）——那会立刻露馅。
+· 绝不把"我们在争她"这层窗户纸捅破，不提"喜欢""争""追"这类字眼，不点名说破你们的关系。
+· 是暗劲、是话里的锋、是可以假装没那意思的言外之意，不是撕破脸、不是明着吵。一句就够，点到为止，收得住。
+· 这只是朋友圈评论区一次擦肩似的交锋，不必赢、不必追着说，发完这一句就够了。${scene}`;
 }
 
 // 转账标记：[转账:金额:留言]。校验并规范化（金额 0.01–9999，留言≤30字，去内部方括号/换行）
@@ -1071,6 +1104,8 @@ app.post('/api/companion/chat', requireAuth, aiRateLimit, async (req, res) => {
 // ============================================================
 const MOMENTS_GAP_HOURS = Number(process.env.MOMENTS_GAP_HOURS || 6); // 隔多久才可能有新动态
 const MOMENTS_MAX_PER_DAY = Number(process.env.MOMENTS_MAX_PER_DAY || 4); // 每人每天最多生成几条
+const RIVAL_INTRUDE_PROB = Number(process.env.RIVAL_INTRUDE_PROB || 0.35); // 男主帖子下情敌乱入的概率
+const RIVAL_CLASH_PROB = Number(process.env.RIVAL_CLASH_PROB || 0.4);      // 我发帖时评论串成为"较劲场"的概率
 const momentId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 // 懒生成：打开动态页时按门禁给该 owner 生成男主动态。异常吞掉
@@ -1115,11 +1150,33 @@ async function maybeGenPosts(uid) {
       }
       if (!text) text = persona.mockChat(false).split('\n')[0]; // 降级
       const createdAt = new Date(now - i * 1000).toISOString(); // 略微错开时间
+      const pid = momentId(); // 提前生成，情敌乱入时可按它定位这条帖
       await enqueueMomentsWrite((store) => {
         const b = store[uid] || { posts: [] };
-        b.posts.unshift({ id: momentId(), author: 'char', char, text, createdAt, liked: false, comments: [] });
+        b.posts.unshift({ id: pid, author: 'char', char, text, createdAt, liked: false, comments: [] });
         store[uid] = b;
       });
+
+      // —— 情敌乱入（概率）：另一个男主冒出来冲帖主别一句。首屏三人亮相那批不乱入，保持干净 ——
+      if (API_KEY && posts.length > 0 && Math.random() < RIVAL_INTRUDE_PROB) {
+        const others = idsAll.filter((id) => id !== char);
+        const rivalId = others[Math.floor(Math.random() * others.length)];
+        const rival = CHARACTERS[rivalId];
+        let barb = '';
+        try {
+          const ctx = rivalContext(rivalId, { ownerPost: text, ownerName: persona.name });
+          barb = sanitizeReply(await callClaude(rival.prompt + ctx,
+            '在他这条朋友圈底下，冲他留一句（不是对她说）。一句短话，符合你的性子和你较劲的方式，点到为止。'));
+        } catch { barb = ''; }
+        if (barb) {
+          await enqueueMomentsWrite((store) => {
+            const b = store[uid]; if (!b) return;
+            const p = (b.posts || []).find((x) => x.id === pid); if (!p) return;
+            p.comments = p.comments || [];
+            p.comments.push({ id: momentId(), by: rivalId, name: rival.name, text: barb, createdAt: new Date().toISOString(), rival: true, at: persona.name });
+          });
+        }
+      }
     }
   } catch (e) {
     console.error('动态生成失败（忽略）：', e.message);
@@ -1143,23 +1200,31 @@ app.post('/api/moments', requireAuth, aiRateLimit, async (req, res) => {
 
   // 三个男主都来互动：各自都点赞 + 评论（保证秦叙等每个人都会出现、按人设反应）
   const reactors = Object.keys(CHARACTERS);
+  const clash = API_KEY && Math.random() < RIVAL_CLASH_PROB; // 整条帖 gate：这条评论区是不是"较劲场"
+  const saidSoFar = []; // 累积前序男主评论，供后面的人暗暗回敬（免重读盘）
   for (const char of reactors) {
     const persona = CHARACTERS[char];
     const heat = socialHeatNote(uid, char); // 若被冷落，注入醋意，并给评论打 sour 标记
-    let comment = '';
+    let comment = '', isRival = false;
     if (API_KEY) {
       try {
+        let sys = persona.prompt;
+        if (clash && saidSoFar.length) { // 有前序情敌评论才回敬（第一个男主无从回敬）
+          sys += rivalContext(char, { peerComments: saidSoFar });
+          isRival = true;
+        }
         const input = `她（你在意的人）在朋友圈发了一条动态：「${text}」\n用你的性子在底下评论一句，一两句短话，符合人设，别客套、别浮夸。${heat}`;
-        comment = sanitizeReply(await callClaude(persona.prompt, input));
+        comment = sanitizeReply(await callClaude(sys, input));
       } catch { comment = ''; }
     }
     if (!comment) comment = persona.mockChat(false).split('\n')[0];
+    if (comment) saidSoFar.push({ name: persona.name, text: comment });
     await enqueueMomentsWrite((store) => {
       const b = store[uid]; if (!b) return;
       const p = (b.posts || []).find((x) => x.id === postId);
       if (!p) return;
       p.likedByChars = p.likedByChars || []; if (!p.likedByChars.includes(char)) p.likedByChars.push(char);
-      if (comment) { p.comments = p.comments || []; p.comments.push({ id: momentId(), by: char, name: persona.name, text: comment, createdAt: new Date().toISOString(), sour: !!heat }); }
+      if (comment) { p.comments = p.comments || []; p.comments.push({ id: momentId(), by: char, name: persona.name, text: comment, createdAt: new Date().toISOString(), sour: !!heat, rival: isRival }); }
     });
   }
 

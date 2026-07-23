@@ -568,6 +568,9 @@
   .mc-cmt.me .who { color:var(--ink-soft); }
   /* 吃醋评论：淡黄底 + 左侧竖条，克制地标出酸味，不喧宾夺主 */
   .mc-cmt.sour { background:rgba(255,209,102,.14); border-left:2px solid #ffd166; border-radius:0 6px 6px 0; padding:3px 8px; margin-left:-2px; }
+  /* 情敌较劲评论：淡青灰左竖条，与吃醋的暖黄区分；"回 XX"标出冲谁去的 */
+  .mc-cmt.rival { background:rgba(120,150,160,.10); border-left:2px solid #8aa; border-radius:0 6px 6px 0; padding:3px 8px; margin-left:-2px; }
+  .mc-cmt .cmt-at { color:var(--ink-faint); font-size:12px; }
   .mc-cmt-input { display:none; margin-top:9px; gap:7px; }
   .mc-cmt-input.show { display:flex; }
   .mc-cmt-input input { flex:1; border:none; outline:none; background:var(--win-face-2); border-radius:16px;
@@ -1841,7 +1844,8 @@ const Moments = (function(){
   }
   function cmtHTML(c){
     const me = c.by === 'user';
-    return `<div class="mc-cmt${me?' me':''}${c.sour?' sour':''}"><span class="who">${escapeHTML(c.name)}：</span>${c.sour?'🍋 ':''}${escapeHTML(c.text)}</div>`;
+    const at = (c.rival && c.at) ? `<span class="cmt-at">回 ${escapeHTML(c.at)}</span> ` : '';
+    return `<div class="mc-cmt${me?' me':''}${c.sour?' sour':''}${c.rival?' rival':''}"><span class="who">${escapeHTML(c.name)}：</span>${at}${c.sour?'🍋 ':''}${escapeHTML(c.text)}</div>`;
   }
   function cardHTML(p){
     const mine = p.author === 'user';
